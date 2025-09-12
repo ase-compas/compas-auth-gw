@@ -31,10 +31,10 @@ func main() {
 		log.Fatalf("Failed to create OIDC middleware: %v", err)
 	}
 
-	// Create proxy middleware
-	proxyMiddleware, err := middleware.NewProxyMiddleware(cfg)
+	// Create multi-proxy middleware
+	multiProxyMiddleware, err := middleware.NewMultiProxyMiddleware(cfg)
 	if err != nil {
-		log.Fatalf("Failed to create proxy middleware: %v", err)
+		log.Fatalf("Failed to create multi-proxy middleware: %v", err)
 	}
 
 	// Create router
@@ -69,8 +69,8 @@ func main() {
 	})
 	mux.Handle("/auth/userinfo", oidcMiddleware.Handler(userInfoHandler))
 
-	// All other requests go through the proxy
-	mux.Handle("/", oidcMiddleware.Handler(proxyMiddleware.Handler()))
+	// All other requests go through the multi-proxy with authentication
+	mux.Handle("/", oidcMiddleware.Handler(multiProxyMiddleware.Handler()))
 
 	// Create server
 	server := &http.Server{
@@ -85,7 +85,10 @@ func main() {
 	go func() {
 		log.Printf("Starting CoMPAS Auth Proxy on %s:%s", cfg.Host, cfg.Port)
 		log.Printf("OIDC Provider: %s", cfg.OIDCProviderURL)
-		log.Printf("Upstream: %s", cfg.UpstreamURL)
+		log.Printf("Configured %d upstream routes", len(cfg.UpstreamRoutes))
+		for _, route := range cfg.UpstreamRoutes {
+			log.Printf("  Route: %s -> %s (strip: %v)", route.Path, route.UpstreamURL, route.StripPath)
+		}
 
 		var err error
 		if cfg.TLSCertFile != "" && cfg.TLSKeyFile != "" {

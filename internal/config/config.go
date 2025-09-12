@@ -6,6 +6,13 @@ import (
 	"strconv"
 )
 
+// UpstreamRoute represents a routing rule for upstream services
+type UpstreamRoute struct {
+	Path        string `json:"path"`        // URL path prefix to match
+	UpstreamURL string `json:"upstream_url"` // Target upstream URL
+	StripPath   bool   `json:"strip_path"`   // Whether to strip the path prefix when forwarding
+}
+
 // Config holds the application configuration
 type Config struct {
 	// Server configuration
@@ -20,7 +27,8 @@ type Config struct {
 	OIDCScopes       []string
 
 	// Proxy configuration
-	UpstreamURL       string
+	UpstreamURL    string          // Legacy single upstream (deprecated)
+	UpstreamRoutes []UpstreamRoute // New multi-upstream configuration
 	SessionSecret     string
 	SessionCookieName string
 	SessionMaxAge     int
@@ -46,6 +54,11 @@ func LoadConfig() (*Config, error) {
 		SessionCookieName: getEnvOrDefault("SESSION_COOKIE_NAME", "compas-session"),
 		TLSCertFile:       getEnvOrDefault("TLS_CERT_FILE", ""),
 		TLSKeyFile:        getEnvOrDefault("TLS_KEY_FILE", ""),
+	}
+
+	// Parse upstream routes
+	if err := config.parseUpstreamRoutes(); err != nil {
+		return nil, fmt.Errorf("failed to parse upstream routes: %v", err)
 	}
 
 	// Parse session max age
@@ -83,7 +96,6 @@ func (c *Config) validate() error {
 		"OIDC_CLIENT_ID":     c.OIDCClientID,
 		"OIDC_CLIENT_SECRET": c.OIDCClientSecret,
 		"OIDC_REDIRECT_URL":  c.OIDCRedirectURL,
-		"UPSTREAM_URL":       c.UpstreamURL,
 		"SESSION_SECRET":     c.SessionSecret,
 	}
 
@@ -91,6 +103,11 @@ func (c *Config) validate() error {
 		if value == "" {
 			return fmt.Errorf("required environment variable %s is not set", key)
 		}
+	}
+	
+	// Validate upstream routes
+	if len(c.UpstreamRoutes) == 0 {
+		return fmt.Errorf("no upstream routes configured. Set UPSTREAM_ROUTES or UPSTREAM_URL")
 	}
 
 	return nil
@@ -169,4 +186,50 @@ func trimSpace(s string) string {
 // isSpace checks if a character is whitespace
 func isSpace(c byte) bool {
 	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
+}
+
+// parseUpstreamRoutes parses upstream route configuration from environment variables
+func (c *Config) parseUpstreamRoutes() error {
+	// Parse upstream routes from environment variables
+	// Format: UPSTREAM_ROUTES="path1:url1:strip,path2:url2:strip,..."
+	routesEnv := getEnvOrDefault("UPSTREAM_ROUTES", "")
+	
+	if routesEnv != "" {
+		routes := parseStringSlice(routesEnv)
+		for _, route := range routes {
+			parts := splitString(route, ":")
+			if len(parts) < 2 || len(parts) > 3 {
+				return fmt.Errorf("invalid route format: %s (expected path:url or path:url:strip)", route)
+			}
+			
+			path := trimSpace(parts[0])
+			upstreamURL := trimSpace(parts[1])
+			stripPath := false
+			
+			if len(parts) == 3 {
+				stripPath = trimSpace(parts[2]) == "true"
+			}
+			
+			if path == "" || upstreamURL == "" {
+				return fmt.Errorf("invalid route: path and URL cannot be empty")
+			}
+			
+			c.UpstreamRoutes = append(c.UpstreamRoutes, UpstreamRoute{
+				Path:        path,
+				UpstreamURL: upstreamURL,
+				StripPath:   stripPath,
+			})
+		}
+	}
+	
+	// If no routes configured, create a default route from legacy UPSTREAM_URL
+	if len(c.UpstreamRoutes) == 0 && c.UpstreamURL != "" {
+		c.UpstreamRoutes = append(c.UpstreamRoutes, UpstreamRoute{
+			Path:        "/",
+			UpstreamURL: c.UpstreamURL,
+			StripPath:   false,
+		})
+	}
+	
+	return nil
 }

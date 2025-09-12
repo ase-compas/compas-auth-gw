@@ -90,13 +90,39 @@ Die Anwendung wird über Umgebungsvariablen konfiguriert:
 | `OIDC_REDIRECT_URL` | Redirect URL | ✅ |
 | `OIDC_SCOPES` | OAuth2 Scopes | `openid,profile,email` |
 
-### Proxy-Konfiguration
-| Variable | Beschreibung | Erforderlich |
-|----------|--------------|--------------|
-| `UPSTREAM_URL` | Backend Service URL | ✅ |
-| `SESSION_SECRET` | Session Encryption Key | ✅ |
-| `SESSION_COOKIE_NAME` | Cookie Name | `compas-session` |
-| `SESSION_MAX_AGE` | Session Timeout (Sekunden) | `3600` |
+### Multi-Upstream Proxy-Konfiguration
+
+Die neue Multi-Upstream-Funktionalität ermöglicht das Routing verschiedener Pfade zu verschiedenen Backend-Services.
+
+| Variable | Beschreibung | Format | Beispiel |
+|----------|--------------|---------|----------|
+| `UPSTREAM_ROUTES` | Multi-Upstream Routing | `path:url:strip,path:url:strip,...` | `/api/scl:http://scl-service:8081:true,/api/history:http://history-service:8082:true` |
+| `UPSTREAM_URL` | Legacy Single Upstream | URL | `http://localhost:8082` |
+| `SESSION_SECRET` | Session Encryption Key | String | ✅ |
+| `SESSION_COOKIE_NAME` | Cookie Name | String | `compas-session` |
+| `SESSION_MAX_AGE` | Session Timeout (Sekunden) | Integer | `3600` |
+
+#### UPSTREAM_ROUTES Format:
+- **path**: URL-Pfad-Präfix der geroutet werden soll (z.B. `/api/scl`)
+- **url**: Ziel-Upstream-URL (z.B. `http://scl-service:8081`)
+- **strip**: `true` = Pfad-Präfix beim Weiterleiten entfernen, `false` = vollständigen Pfad beibehalten
+
+#### Beispiel-Konfiguration:
+```bash
+UPSTREAM_ROUTES="/api/scl:http://scl-service:8081:true,/api/history:http://history-service:8082:true,/api/location:http://location-service:8083:true,/:http://frontend:80:false"
+```
+
+Diese Konfiguration routet:
+- `/api/scl/*` → `http://scl-service:8081/*` (Pfad wird gestrippt)
+- `/api/history/*` → `http://history-service:8082/*` (Pfad wird gestrippt)  
+- `/api/location/*` → `http://location-service:8083/*` (Pfad wird gestrippt)
+- `/*` → `http://frontend:80/*` (Pfad wird beibehalten)
+
+#### Routing-Regeln:
+1. **Längste Übereinstimmung gewinnt**: Spezifischere Pfade haben Vorrang vor allgemeineren
+2. **Pfad-Matching**: Ein Pfad `/api/scl` matched `/api/scl`, `/api/scl/`, `/api/scl/files`, etc.
+3. **Root-Pfad**: Der Pfad `/` fungiert als Fallback für alle nicht gematchten Anfragen
+4. **Authentifizierung**: Alle konfigurierten Routen erfordern eine gültige Authentifizierung
 
 ### Sicherheit
 | Variable | Beschreibung | Standard |
