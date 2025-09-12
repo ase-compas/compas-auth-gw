@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
@@ -129,11 +130,7 @@ func getUserInfoFromContext(ctx interface{}) *UserInfo {
 	if c, ok := ctx.(interface {
 		Value(key interface{}) interface{}
 	}); ok {
-		if user := c.Value("user"); user != nil {
-			if userInfo, ok := user.(*UserInfo); ok {
-				return userInfo
-			}
-		}
+		return GetUserFromContext(c.(context.Context))
 	}
 
 	return nil
@@ -149,11 +146,7 @@ func getAccessTokenFromContext(ctx interface{}) string {
 	if c, ok := ctx.(interface {
 		Value(key interface{}) interface{}
 	}); ok {
-		if token := c.Value("access_token"); token != nil {
-			if tokenStr, ok := token.(string); ok {
-				return tokenStr
-			}
-		}
+		return GetAccessTokenFromContext(c.(context.Context))
 	}
 
 	return ""

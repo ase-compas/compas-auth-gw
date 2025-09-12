@@ -50,8 +50,8 @@ func main() {
 	// OIDC callback endpoint
 	mux.HandleFunc("/auth/callback", oidcMiddleware.HandleCallback)
 
-	// User info endpoint
-	mux.HandleFunc("/auth/userinfo", func(w http.ResponseWriter, r *http.Request) {
+	// User info endpoint - wrapped with OIDC middleware
+	userInfoHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// This endpoint requires authentication
 		userInfo := getUserInfoFromRequest(r)
 		if userInfo == nil {
@@ -67,6 +67,7 @@ func main() {
 			"preferred_username": "%s"
 		}`, userInfo.Sub, userInfo.Name, userInfo.Email, userInfo.PreferredUsername)
 	})
+	mux.Handle("/auth/userinfo", oidcMiddleware.Handler(userInfoHandler))
 
 	// All other requests go through the proxy
 	mux.Handle("/", oidcMiddleware.Handler(proxyMiddleware.Handler()))
@@ -138,10 +139,5 @@ func (rw *responseWriter) WriteHeader(code int) {
 
 // getUserInfoFromRequest extracts user info from request context
 func getUserInfoFromRequest(r *http.Request) *middleware.UserInfo {
-	if user := r.Context().Value("user"); user != nil {
-		if userInfo, ok := user.(*middleware.UserInfo); ok {
-			return userInfo
-		}
-	}
-	return nil
+	return middleware.GetUserFromContext(r.Context())
 }

@@ -95,7 +95,7 @@ Die Anwendung wird über Umgebungsvariablen konfiguriert:
 |----------|--------------|--------------|
 | `UPSTREAM_URL` | Backend Service URL | ✅ |
 | `SESSION_SECRET` | Session Encryption Key | ✅ |
-| `SESSION_COOKIE_NAME` | Cookie Name | `compas-auth-session` |
+| `SESSION_COOKIE_NAME` | Cookie Name | `compas-session` |
 | `SESSION_MAX_AGE` | Session Timeout (Sekunden) | `3600` |
 
 ### Sicherheit

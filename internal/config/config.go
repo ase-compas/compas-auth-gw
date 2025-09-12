@@ -43,7 +43,7 @@ func LoadConfig() (*Config, error) {
 		OIDCRedirectURL:   getEnvOrDefault("OIDC_REDIRECT_URL", ""),
 		UpstreamURL:       getEnvOrDefault("UPSTREAM_URL", ""),
 		SessionSecret:     getEnvOrDefault("SESSION_SECRET", ""),
-		SessionCookieName: getEnvOrDefault("SESSION_COOKIE_NAME", "compas-auth-session"),
+		SessionCookieName: getEnvOrDefault("SESSION_COOKIE_NAME", "compas-session"),
 		TLSCertFile:       getEnvOrDefault("TLS_CERT_FILE", ""),
 		TLSKeyFile:        getEnvOrDefault("TLS_KEY_FILE", ""),
 	}

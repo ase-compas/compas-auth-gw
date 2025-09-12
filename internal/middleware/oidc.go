@@ -1,11 +1,11 @@
 package middleware
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -105,14 +105,17 @@ func (m *OIDCMiddleware) discoverProvider() error {
 // Handler returns the middleware handler function
 func (m *OIDCMiddleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
 		// Skip authentication for health check and callback endpoints
 		if r.URL.Path == "/health" || r.URL.Path == "/auth/callback" {
+			log.Printf("Skipping authentication for: %s", r.URL.Path)
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		// Handle logout
 		if r.URL.Path == "/auth/logout" {
+			log.Printf("Handling logout request")
 			m.handleLogout(w, r)
 			return
 		}
@@ -120,19 +123,21 @@ func (m *OIDCMiddleware) Handler(next http.Handler) http.Handler {
 		// Check if user is authenticated
 		sessionID := m.getSessionID(r)
 		if sessionID == "" {
+			log.Printf("No session ID found, redirecting to login")
 			m.redirectToLogin(w, r)
 			return
 		}
 
 		sessionData, err := m.sessionStore.Get(sessionID)
 		if err != nil || sessionData == nil || sessionData.ExpiresAt.Before(time.Now()) {
+			log.Printf("Invalid or expired session %s, redirecting to login", sessionID)
 			m.redirectToLogin(w, r)
 			return
 		}
 
 		// Add user information to request context
-		ctx := context.WithValue(r.Context(), "user", sessionData.UserInfo)
-		ctx = context.WithValue(ctx, "access_token", sessionData.AccessToken)
+		ctx := SetUserInContext(r.Context(), sessionData.UserInfo)
+		ctx = SetAccessTokenInContext(ctx, sessionData.AccessToken)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -276,6 +281,7 @@ func (m *OIDCMiddleware) handleLogout(w http.ResponseWriter, r *http.Request) {
 	sessionID := m.getSessionID(r)
 	if sessionID != "" {
 		m.sessionStore.Delete(sessionID)
+		log.Printf("User logged out, session %s deleted", sessionID)
 	}
 
 	// Clear session cookie
@@ -288,6 +294,7 @@ func (m *OIDCMiddleware) handleLogout(w http.ResponseWriter, r *http.Request) {
 		Secure:   r.TLS != nil,
 	}
 	http.SetCookie(w, cookie)
+	log.Printf("Session cookie %s cleared", m.config.SessionCookieName)
 
 	http.Redirect(w, r, "/", http.StatusFound)
 }
