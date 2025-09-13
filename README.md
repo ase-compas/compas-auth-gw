@@ -56,6 +56,10 @@ Ein moderner Authentication Proxy für das CoMPAS (Common Platform for Substatio
 
 4. **Anwendung starten:**
    ```bash
+   # Option 1: Use default config.yaml
+   go run ./cmd
+   
+   # Option 2: Specify config file explicitly
    CONFIG_FILE=config.yaml go run ./cmd
    ```
 
@@ -120,12 +124,24 @@ security:
     - "http://localhost:8080"
 ```
 
+### Konfigurationsdatei
+
+Die Anwendung lädt automatisch eine Konfigurationsdatei in folgender Reihenfolge:
+1. Datei aus `CONFIG_FILE` Umgebungsvariable (falls gesetzt)
+2. `config.yaml` im aktuellen Verzeichnis (Standard-Fallback)
+
 ### Umgebungsvariablen-Overrides
 
 Sensible Werte können über Umgebungsvariablen überschrieben werden:
 
 ```bash
+# Option 1: Mit expliziter Konfigurationsdatei
 export CONFIG_FILE=config.yaml
+export OIDC_CLIENT_SECRET=produktions-secret
+export SESSION_SECRET=produktions-session-key
+./compas-auth-proxy
+
+# Option 2: Mit Standard config.yaml
 export OIDC_CLIENT_SECRET=produktions-secret
 export SESSION_SECRET=produktions-session-key
 ./compas-auth-proxy
@@ -277,8 +293,9 @@ Die Anwendung loggt alle HTTP-Anfragen mit:
    - Session ist abgelaufen oder ungültig
    - Benutzer wird automatisch zur Anmeldung weitergeleitet
 
-4. **"CONFIG_FILE environment variable must be set"**
-   - Setzen Sie `CONFIG_FILE=config.yaml` als Umgebungsvariable
+4. **"CONFIG_FILE environment variable not set and default config.yaml not found"**
+   - Erstellen Sie eine `config.yaml` Datei im aktuellen Verzeichnis, oder
+   - Setzen Sie `CONFIG_FILE=pfad/zu/ihrer/config.yaml` als Umgebungsvariable
    - Stellen Sie sicher, dass die YAML-Datei existiert und gültig ist
 
 ### Debug-Logs aktivieren

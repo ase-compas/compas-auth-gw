@@ -114,15 +114,19 @@ type Config struct {
 
 // LoadConfig loads configuration from YAML file
 func LoadConfig() (*Config, error) {
-	// Require YAML configuration file
+	// Try CONFIG_FILE environment variable first, then default to config.yaml
 	configFile := os.Getenv("CONFIG_FILE")
 	if configFile == "" {
-		return nil, fmt.Errorf("CONFIG_FILE environment variable must be set to point to a YAML configuration file")
+		configFile = "config.yaml"
+		// Check if the default config file exists
+		if _, err := os.Stat(configFile); err != nil {
+			return nil, fmt.Errorf("CONFIG_FILE environment variable not set and default config.yaml not found. Please set CONFIG_FILE or create config.yaml")
+		}
 	}
 
 	config, err := LoadFromYAML(configFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load YAML configuration: %v", err)
+		return nil, fmt.Errorf("failed to load YAML configuration from %s: %v", configFile, err)
 	}
 
 	// Allow environment variables to override sensitive values

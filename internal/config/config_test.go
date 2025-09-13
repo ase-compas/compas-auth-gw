@@ -184,15 +184,88 @@ func TestRequireConfigFile(t *testing.T) {
 		}
 	}()
 
-	// LoadConfig should fail without CONFIG_FILE
+	// LoadConfig should fail without CONFIG_FILE and without default config.yaml
 	_, err := LoadConfig()
 	if err == nil {
-		t.Error("Expected LoadConfig to fail when CONFIG_FILE is not set")
+		t.Error("Expected LoadConfig to fail when CONFIG_FILE is not set and config.yaml doesn't exist")
 	}
 
-	expectedErrorSubstring := "CONFIG_FILE environment variable must be set"
+	expectedErrorSubstring := "CONFIG_FILE environment variable not set and default config.yaml not found"
 	if !strings.Contains(err.Error(), expectedErrorSubstring) {
 		t.Errorf("Expected error to contain '%s', got: %v", expectedErrorSubstring, err)
+	}
+}
+
+func TestDefaultConfigYamlFallback(t *testing.T) {
+	// Clear CONFIG_FILE environment variable
+	originalConfigFile := os.Getenv("CONFIG_FILE")
+	os.Unsetenv("CONFIG_FILE")
+	defer func() {
+		if originalConfigFile != "" {
+			os.Setenv("CONFIG_FILE", originalConfigFile)
+		}
+	}()
+
+	// Create a test config.yaml file
+	configContent := `
+server:
+  port: "8080"
+  host: "0.0.0.0"
+
+oidc:
+  provider_url: "http://localhost:8081/auth/realms/compas"
+  client_id: "test-client"
+  client_secret: "test-secret-for-default-config-testing"
+  redirect_url: "http://localhost:8080/auth/callback"
+  scopes: "openid,profile,email"
+
+session:
+  secret: "test-session-secret-at-least-32-characters-long"
+  cookie_name: "test-session"
+  max_age: 3600
+
+proxy:
+  routes:
+    - path: "/"
+      upstream_url: "http://localhost:8085"
+      strip_path: false
+
+security:
+  allowed_origins:
+    - "http://localhost:3000"
+
+logging:
+  level: "info"
+  format: "text"
+
+health:
+  enabled: true
+  check_upstreams: false
+`
+
+	// Write the config.yaml file
+	err := os.WriteFile("config.yaml", []byte(configContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create test config.yaml: %v", err)
+	}
+	defer os.Remove("config.yaml") // Clean up
+
+	// LoadConfig should succeed with default config.yaml
+	config, err := LoadConfig()
+	if err != nil {
+		t.Errorf("Expected LoadConfig to succeed with default config.yaml, got error: %v", err)
+	}
+
+	if config == nil {
+		t.Error("Expected config to be loaded from default config.yaml")
+	}
+
+	// Verify the config was loaded correctly
+	if config.Port != "8080" {
+		t.Errorf("Expected port to be 8080, got %s", config.Port)
+	}
+	if config.OIDCClientID != "test-client" {
+		t.Errorf("Expected client ID to be test-client, got %s", config.OIDCClientID)
 	}
 }
 

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CoMPAS Backend Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .content {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .auth-info {
+            background-color: #e8f5e8;
+            border: 1px solid #4caf50;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        .auth-header {
+            background-color: #f0f0f0;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔐 CoMPAS Backend Demo</h1>
+        <p>Diese Seite wird durch den CoMPAS Auth Proxy geschützt</p>
+    </div>
+
+    <div class="content">
+        <h2>Willkommen im geschützten Bereich!</h2>
+        
+        <div class="auth-info">
+            <h3>✅ Authentifizierung erfolgreich</h3>
+            <p>Sie haben sich erfolgreich über OpenID Connect authentifiziert.</p>
+        </div>
+
+        <h3>Authentication Headers</h3>
+        <p>Der Auth Proxy fügt folgende Header zu den Anfragen hinzu:</p>
+        
+        <div class="auth-header">
+            <strong>X-Auth-User:</strong> [Benutzer Sub/ID]<br>
+            <strong>X-Auth-Email:</strong> [Benutzer E-Mail]<br>
+            <strong>X-Auth-Name:</strong> [Benutzer Name]<br>
+            <strong>X-Auth-Username:</strong> [Benutzername]<br>
+            <strong>Authorization:</strong> Bearer [Access Token]
+        </div>
+
+        <h3>Verfügbare Aktionen</h3>
+        <ul>
+            <li><a href="/auth/userinfo">Benutzerinformationen anzeigen</a></li>
+            <li><a href="/auth/logout">Abmelden</a></li>
+            <li><a href="/health">System Health Check</a></li>
+        </ul>
+
+        <h3>CoMPAS Services</h3>
+        <p>Diese Demo simuliert einen geschützten CoMPAS Backend-Service. In einer echten Umgebung würden hier die verschiedenen CoMPAS-Mikroservices laufen:</p>
+        <ul>
+            <li>SCL Data Service</li>
+            <li>History Viewer</li>
+            <li>Location Manager</li>
+            <li>Archive Explorer</li>
+        </ul>
+
+        <hr>
+        
+        <p><small>
+            <strong>CoMPAS Auth Proxy</strong> - Sichere Authentifizierung für das Common Platform for Substation Automation System
+        </small></p>
+    </div>
+
+    <script>
+        // Zeige aktuelle Zeit
+        document.addEventListener('DOMContentLoaded', function() {
+            const now = new Date().toLocaleString('de-DE');
+            const timeDiv = document.createElement('div');
+            timeDiv.innerHTML = '<p><strong>Zugriff um:</strong> ' + now + '</p>';
+            timeDiv.style.textAlign = 'center';
+            timeDiv.style.color = '#666';
+            timeDiv.style.marginTop = '20px';
+            document.body.appendChild(timeDiv);
+        });
+    </script>
+</body>
+</html>

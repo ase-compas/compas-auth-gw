@@ -30,9 +30,6 @@ WORKDIR /app
 # Copy the binary from builder stage
 COPY --from=builder /app/compas-auth-proxy .
 
-# Copy example configuration files
-COPY --from=builder /app/config.*.yaml ./
-
 # Create non-root user
 RUN adduser -D -s /bin/sh compas && \
     chown -R compas:compas /app

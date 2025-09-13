@@ -85,7 +85,9 @@ logging:
 
 ### YAML Configuration (Required)
 
-The application now requires a YAML configuration file. Set the `CONFIG_FILE` environment variable to point to your configuration:
+The application requires a YAML configuration file. You can either:
+- Set the `CONFIG_FILE` environment variable to point to your configuration file, or
+- Create a `config.yaml` file in the current directory (default fallback)
 
 1. **Copy an example configuration:**
    ```bash
@@ -99,6 +101,10 @@ The application now requires a YAML configuration file. Set the `CONFIG_FILE` en
 
 3. **Run with YAML configuration:**
    ```bash
+   # Option 1: Use default config.yaml
+   ./compas-auth-proxy
+   
+   # Option 2: Specify config file explicitly
    CONFIG_FILE=config.yaml ./compas-auth-proxy
    ```
 
