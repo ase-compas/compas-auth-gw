@@ -12,8 +12,8 @@ This demo shows how to configure multiple upstream services with the CoMPAS Auth
    export OIDC_REDIRECT_URL="http://localhost:8080/auth/callback"
    export SESSION_SECRET="your-very-secret-session-key-minimum-32-chars"
    
-   # Multi-upstream configuration
-   export UPSTREAM_ROUTES="/api/scl:http://localhost:8082:true,/api/history:http://localhost:8083:true,/api/location:http://localhost:8084:true,/:http://localhost:8085:false"
+   # Multi-upstream configuration (updated delimiter format)
+   export UPSTREAM_ROUTES="/api/scl,http://localhost:8082,true;/api/history,http://localhost:8083,true;/api/location,http://localhost:8084,true;/,http://localhost:8085,false"
    ```
 
 2. **Start the auth proxy:**

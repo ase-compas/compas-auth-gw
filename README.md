@@ -96,8 +96,7 @@ Die neue Multi-Upstream-Funktionalität ermöglicht das Routing verschiedener Pf
 
 | Variable | Beschreibung | Format | Beispiel |
 |----------|--------------|---------|----------|
-| `UPSTREAM_ROUTES` | Multi-Upstream Routing | `path:url:strip,path:url:strip,...` | `/api/scl:http://scl-service:8081:true,/api/history:http://history-service:8082:true` |
-| `UPSTREAM_URL` | Legacy Single Upstream | URL | `http://localhost:8082` |
+| `UPSTREAM_ROUTES` | Multi-Upstream Routing | `path,url,strip;path,url,strip;...` | `/api/scl,http://scl-service:8081,true;/api/history,http://history-service:8082,true` |
 | `SESSION_SECRET` | Session Encryption Key | String | ✅ |
 | `SESSION_COOKIE_NAME` | Cookie Name | String | `compas-session` |
 | `SESSION_MAX_AGE` | Session Timeout (Sekunden) | Integer | `3600` |
@@ -109,7 +108,7 @@ Die neue Multi-Upstream-Funktionalität ermöglicht das Routing verschiedener Pf
 
 #### Beispiel-Konfiguration:
 ```bash
-UPSTREAM_ROUTES="/api/scl:http://scl-service:8081:true,/api/history:http://history-service:8082:true,/api/location:http://location-service:8083:true,/:http://frontend:80:false"
+UPSTREAM_ROUTES="/api/scl,http://scl-service:8081,true;/api/history,http://history-service:8082,true;/api/location,http://location-service:8083,true;/,http://frontend:80,false"
 ```
 
 Diese Konfiguration routet:
@@ -194,7 +193,7 @@ make dev
      -e OIDC_CLIENT_ID=your-client-id \
      -e OIDC_CLIENT_SECRET=your-client-secret \
      -e OIDC_REDIRECT_URL=https://your-domain.com/auth/callback \
-     -e UPSTREAM_URL=https://your-backend.com \
+     -e UPSTREAM_ROUTES="/api/scl,https://scl-service.com,true;/api/history,https://history-service.com,true;/,https://frontend.com,false" \
      -e SESSION_SECRET=your-session-secret \
      compas-auth-proxy:latest
    ```
@@ -246,8 +245,8 @@ Die Anwendung loggt alle HTTP-Anfragen mit:
    - Stellen Sie sicher, dass der Provider erreichbar ist
 
 2. **"Invalid upstream URL"**
-   - Überprüfen Sie die `UPSTREAM_URL` Formatierung
-   - Stellen Sie sicher, dass das Backend erreichbar ist
+   - Überprüfen Sie die `UPSTREAM_ROUTES` Formatierung
+   - Stellen Sie sicher, dass die Backend-Services erreichbar sind
 
 3. **"Session not found"**
    - Session ist abgelaufen oder ungültig
