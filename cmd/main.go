@@ -14,12 +14,16 @@ import (
 )
 
 func main() {
-
 	// Load configuration
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+
+	// Log configuration source
+	configFile := os.Getenv("CONFIG_FILE")
+	log.Printf("Loaded configuration from YAML file: %s", configFile)
+	log.Printf("Log level: %s, Log format: %s", cfg.LogLevel, cfg.LogFormat)
 
 	// Create session store
 	sessionStore := middleware.NewMemorySessionStore()
@@ -44,7 +48,15 @@ func main() {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, `{"status":"healthy","timestamp":"%s"}`, time.Now().UTC().Format(time.RFC3339))
+		status := "healthy"
+
+		// Optionally check upstream health if enabled
+		upstreamStatus := ""
+		if cfg.HealthCheckUpstreams {
+			upstreamStatus = `,"upstreams":"not_checked"` // TODO: Implement upstream health checks
+		}
+
+		fmt.Fprintf(w, `{"status":"%s","timestamp":"%s"%s}`, status, time.Now().UTC().Format(time.RFC3339), upstreamStatus)
 	})
 
 	// OIDC callback endpoint

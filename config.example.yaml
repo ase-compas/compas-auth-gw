@@ -1,0 +1,57 @@
+# OIDC Gateway Configuration
+# Example configuration with explanatory comments
+# This is an example configuration file in YAML format
+# It represents the same configuration as .env.example but in a hierarchical structure
+
+# Server configuration
+server:
+  port: 8080
+  host: "0.0.0.0"
+  
+# TLS configuration (optional)
+tls:
+  cert_file: ""
+  key_file: ""
+  insecure_skip_verify: false
+
+# OpenID Connect configuration
+oidc:
+  provider_url: "http://localhost:8081/auth/realms/compas"
+  client_id: "compas-auth-proxy"
+  client_secret: "your-client-secret-here"
+  redirect_url: "http://localhost:8080/auth/callback"
+  scopes: "openid,profile,email"
+
+# Session management configuration
+session:
+  secret: "your-very-secret-session-key-here-minimum-32-chars"
+  cookie_name: "compas-auth-session"
+  max_age: 3600  # in seconds
+
+# Upstream routing configuration
+proxy:
+  # Multi-upstream routes: each route can forward to different backend services
+  routes:
+    - path: "/api/scl"
+      upstream_url: "http://localhost:8082"
+      strip_path: true
+    - path: "/api/history"
+      upstream_url: "http://localhost:8083"
+      strip_path: true
+    - path: "/api/location"
+      upstream_url: "http://localhost:8084"
+      strip_path: true
+    - path: "/"
+      upstream_url: "http://localhost:8085"
+      strip_path: false
+
+# Security configuration
+security:
+  allowed_origins:
+    - "http://localhost:3000"
+    - "http://localhost:8080"
+
+# Logging configuration (optional - not in original .env but commonly needed)
+logging:
+  level: "info"  # debug, info, warn, error
+  format: "json"  # json, text

@@ -48,15 +48,15 @@ Ein moderner Authentication Proxy für das CoMPAS (Common Platform for Substatio
    go mod tidy
    ```
 
-3. **Umgebungsvariablen konfigurieren:**
+3. **Konfiguration erstellen:**
    ```bash
-   cp .env.example .env
-   # Bearbeiten Sie die .env-Datei mit Ihren Werten
+   cp config.example.yaml config.yaml
+   # Bearbeiten Sie config.yaml mit Ihren Werten
    ```
 
 4. **Anwendung starten:**
    ```bash
-   make run
+   CONFIG_FILE=config.yaml go run ./cmd
    ```
 
 ### Mit Docker
@@ -73,63 +73,90 @@ Ein moderner Authentication Proxy für das CoMPAS (Common Platform for Substatio
 
 ## Konfiguration
 
-Die Anwendung wird über Umgebungsvariablen konfiguriert:
+Die Anwendung verwendet YAML-Konfigurationsdateien für eine strukturierte und lesbare Konfiguration.
 
-### Server-Konfiguration
-| Variable | Beschreibung | Standard |
-|----------|--------------|----------|
-| `PORT` | Server-Port | `8080` |
-| `HOST` | Server-Host | `0.0.0.0` |
+### Konfigurationsdateien
 
-### OpenID Connect
-| Variable | Beschreibung | Erforderlich |
-|----------|--------------|--------------|
-| `OIDC_PROVIDER_URL` | OIDC Provider URL | ✅ |
-| `OIDC_CLIENT_ID` | Client ID | ✅ |
-| `OIDC_CLIENT_SECRET` | Client Secret | ✅ |
-| `OIDC_REDIRECT_URL` | Redirect URL | ✅ |
-| `OIDC_SCOPES` | OAuth2 Scopes | `openid,profile,email` |
+- `config.example.yaml` - Beispielkonfiguration mit allen Optionen
+- `config.dev.yaml` - Entwicklungsoptimierte Konfiguration
+- `config.production.yaml` - Produktions-Template mit ausführlichen Kommentaren
 
-### Multi-Upstream Proxy-Konfiguration
+### Grundlegende YAML-Struktur
 
-Die neue Multi-Upstream-Funktionalität ermöglicht das Routing verschiedener Pfade zu verschiedenen Backend-Services.
+```yaml
+# Server-Konfiguration
+server:
+  port: "8080"
+  host: "0.0.0.0"
 
-| Variable | Beschreibung | Format | Beispiel |
-|----------|--------------|---------|----------|
-| `UPSTREAM_ROUTES` | Multi-Upstream Routing | `path,url,strip;path,url,strip;...` | `/api/scl,http://scl-service:8081,true;/api/history,http://history-service:8082,true` |
-| `SESSION_SECRET` | Session Encryption Key | String | ✅ |
-| `SESSION_COOKIE_NAME` | Cookie Name | String | `compas-session` |
-| `SESSION_MAX_AGE` | Session Timeout (Sekunden) | Integer | `3600` |
+# OpenID Connect
+oidc:
+  provider_url: "http://localhost:8081/auth/realms/compas"
+  client_id: "compas-auth-proxy"
+  client_secret: "ihr-client-secret"
+  redirect_url: "http://localhost:8080/auth/callback"
+  scopes: "openid,profile,email"
 
-#### UPSTREAM_ROUTES Format:
-- **path**: URL-Pfad-Präfix der geroutet werden soll (z.B. `/api/scl`)
-- **url**: Ziel-Upstream-URL (z.B. `http://scl-service:8081`)
-- **strip**: `true` = Pfad-Präfix beim Weiterleiten entfernen, `false` = vollständigen Pfad beibehalten
+# Session-Verwaltung
+session:
+  secret: "ihr-sehr-sicherer-session-schlüssel-mindestens-32-zeichen"
+  cookie_name: "compas-session"
+  max_age: 3600
 
-#### Beispiel-Konfiguration:
-```bash
-UPSTREAM_ROUTES="/api/scl,http://scl-service:8081,true;/api/history,http://history-service:8082,true;/api/location,http://location-service:8083,true;/,http://frontend:80,false"
+# Multi-Upstream Proxy
+proxy:
+  routes:
+    - path: "/api/scl"
+      upstream_url: "http://scl-service:8081"
+      strip_path: true
+    - path: "/"
+      upstream_url: "http://frontend:80"
+      strip_path: false
+
+# Sicherheit
+security:
+  allowed_origins:
+    - "http://localhost:3000"
+    - "http://localhost:8080"
 ```
 
-Diese Konfiguration routet:
-- `/api/scl/*` → `http://scl-service:8081/*` (Pfad wird gestrippt)
-- `/api/history/*` → `http://history-service:8082/*` (Pfad wird gestrippt)  
-- `/api/location/*` → `http://location-service:8083/*` (Pfad wird gestrippt)
-- `/*` → `http://frontend:80/*` (Pfad wird beibehalten)
+### Umgebungsvariablen-Overrides
+
+Sensible Werte können über Umgebungsvariablen überschrieben werden:
+
+```bash
+export CONFIG_FILE=config.yaml
+export OIDC_CLIENT_SECRET=produktions-secret
+export SESSION_SECRET=produktions-session-key
+./compas-auth-proxy
+### Multi-Upstream Routing
+
+Das Multi-Upstream-System ermöglicht es, verschiedene URL-Pfade zu unterschiedlichen Backend-Services zu routen:
+
+#### Routing-Beispiel:
+```yaml
+proxy:
+  routes:
+    - path: "/api/scl"
+      upstream_url: "http://scl-service:8081"
+      strip_path: true
+    - path: "/api/history" 
+      upstream_url: "http://history-service:8082"
+      strip_path: true
+    - path: "/api/location"
+      upstream_url: "http://location-service:8083" 
+      strip_path: true
+    - path: "/"
+      upstream_url: "http://frontend:80"
+      strip_path: false
+```
 
 #### Routing-Regeln:
 1. **Längste Übereinstimmung gewinnt**: Spezifischere Pfade haben Vorrang vor allgemeineren
 2. **Pfad-Matching**: Ein Pfad `/api/scl` matched `/api/scl`, `/api/scl/`, `/api/scl/files`, etc.
 3. **Root-Pfad**: Der Pfad `/` fungiert als Fallback für alle nicht gematchten Anfragen
 4. **Authentifizierung**: Alle konfigurierten Routen erfordern eine gültige Authentifizierung
-
-### Sicherheit
-| Variable | Beschreibung | Standard |
-|----------|--------------|----------|
-| `ALLOWED_ORIGINS` | Erlaubte CORS Origins | `*` |
-| `TLS_CERT_FILE` | TLS Zertifikat Pfad | - |
-| `TLS_KEY_FILE` | TLS Key Pfad | - |
-| `INSECURE_SKIP_VERIFY` | TLS Verifikation überspringen | `false` |
+5. **Strip Path**: `true` = Pfad-Präfix entfernen, `false` = vollständigen Pfad beibehalten
 
 ## API Endpoints
 
@@ -189,11 +216,9 @@ make dev
    docker run -d \
      --name compas-auth-proxy \
      -p 8080:8080 \
-     -e OIDC_PROVIDER_URL=https://your-oidc-provider.com \
-     -e OIDC_CLIENT_ID=your-client-id \
+     -v $(pwd)/config.yaml:/app/config.yaml:ro \
+     -e CONFIG_FILE=/app/config.yaml \
      -e OIDC_CLIENT_SECRET=your-client-secret \
-     -e OIDC_REDIRECT_URL=https://your-domain.com/auth/callback \
-     -e UPSTREAM_ROUTES="/api/scl,https://scl-service.com,true;/api/history,https://history-service.com,true;/,https://frontend.com,false" \
      -e SESSION_SECRET=your-session-secret \
      compas-auth-proxy:latest
    ```
@@ -241,24 +266,29 @@ Die Anwendung loggt alle HTTP-Anfragen mit:
 ### Häufige Probleme
 
 1. **"Failed to discover OIDC provider"**
-   - Überprüfen Sie die `OIDC_PROVIDER_URL`
+   - Überprüfen Sie die `oidc.provider_url` in der YAML-Konfiguration
    - Stellen Sie sicher, dass der Provider erreichbar ist
 
 2. **"Invalid upstream URL"**
-   - Überprüfen Sie die `UPSTREAM_ROUTES` Formatierung
+   - Überprüfen Sie die `proxy.routes` Konfiguration in der YAML-Datei
    - Stellen Sie sicher, dass die Backend-Services erreichbar sind
 
 3. **"Session not found"**
    - Session ist abgelaufen oder ungültig
    - Benutzer wird automatisch zur Anmeldung weitergeleitet
 
+4. **"CONFIG_FILE environment variable must be set"**
+   - Setzen Sie `CONFIG_FILE=config.yaml` als Umgebungsvariable
+   - Stellen Sie sicher, dass die YAML-Datei existiert und gültig ist
+
 ### Debug-Logs aktivieren
 
-Für detaillierte Logs können Sie das Log-Level erhöhen:
+Für detaillierte Logs setzen Sie das Log-Level in der YAML-Konfiguration:
 
-```bash
-export LOG_LEVEL=debug
-./compas-auth-proxy
+```yaml
+logging:
+  level: "debug"
+  format: "text"  # oder "json" für strukturierte Logs
 ```
 
 ## Lizenz

@@ -1,0 +1,78 @@
+# Docker Compose configuration using YAML config file
+# This demonstrates how to use the YAML configuration instead of environment variables
+
+version: '3.8'
+
+services:
+  compas-auth-proxy:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      # Mount the configuration file
+      - ./config.example.yaml:/app/config.yaml:ro
+    environment:
+      # Override specific values via environment if needed
+      - CONFIG_FILE=/app/config.yaml
+      # You can still override specific values with env vars if the implementation supports it
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-your-client-secret-here}
+      - SESSION_SECRET=${SESSION_SECRET:-your-very-secret-session-key}
+    depends_on:
+      - keycloak
+      - scl-service
+      - history-service
+      - frontend
+    networks:
+      - compas-network
+
+  # Mock services for testing
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    ports:
+      - "8081:8080"
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+    command: start-dev
+    networks:
+      - compas-network
+
+  scl-service:
+    image: nginx:alpine
+    ports:
+      - "8082:80"
+    volumes:
+      - ./demo-content/scl-service:/usr/share/nginx/html:ro
+    networks:
+      - compas-network
+
+  history-service:
+    image: nginx:alpine
+    ports:
+      - "8083:80"
+    volumes:
+      - ./demo-content/history-service:/usr/share/nginx/html:ro
+    networks:
+      - compas-network
+
+  location-service:
+    image: nginx:alpine
+    ports:
+      - "8084:80"
+    volumes:
+      - ./demo-content/location-service:/usr/share/nginx/html:ro
+    networks:
+      - compas-network
+
+  frontend:
+    image: nginx:alpine
+    ports:
+      - "8085:80"
+    volumes:
+      - ./demo-content/frontend:/usr/share/nginx/html:ro
+    networks:
+      - compas-network
+
+networks:
+  compas-network:
+    driver: bridge

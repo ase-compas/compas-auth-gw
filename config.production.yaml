@@ -1,0 +1,121 @@
+# OIDC Gateway Configuration
+# Production configuration template with detailed comments
+
+# =============================================================================
+# SERVER CONFIGURATION
+# =============================================================================
+server:
+  # Port on which the auth gateway will listen
+  port: 8080
+  
+  # Host address to bind to (0.0.0.0 for all interfaces, 127.0.0.1 for localhost only)
+  host: "0.0.0.0"
+
+# =============================================================================
+# TLS/SSL CONFIGURATION
+# =============================================================================
+tls:
+  # Path to TLS certificate file (leave empty to disable HTTPS)
+  cert_file: ""
+  
+  # Path to TLS private key file (leave empty to disable HTTPS)
+  key_file: ""
+  
+  # Skip TLS certificate verification for upstream services (NOT recommended for production)
+  insecure_skip_verify: false
+
+# =============================================================================
+# OPENID CONNECT CONFIGURATION
+# =============================================================================
+oidc:
+  # URL of the OpenID Connect provider (e.g., Keycloak, Auth0, etc.)
+  # Example for Keycloak: http://keycloak.example.com/auth/realms/your-realm
+  provider_url: "http://localhost:8081/auth/realms/compas"
+  
+  # OAuth2 Client ID registered with the OIDC provider
+  client_id: "compas-auth-proxy"
+  
+  # OAuth2 Client Secret (keep this secure!)
+  client_secret: "your-client-secret-here"
+  
+  # Redirect URL that the OIDC provider will call back to after authentication
+  # Must match the redirect URI configured in your OIDC provider
+  redirect_url: "http://localhost:8080/auth/callback"
+  
+  # OAuth2 scopes to request during authentication
+  # Common scopes: openid (required), profile, email, groups, roles
+  scopes: "openid,profile,email"
+
+# =============================================================================
+# SESSION MANAGEMENT CONFIGURATION
+# =============================================================================
+session:
+  # Secret key for encrypting session data (minimum 32 characters)
+  # Generate a secure random string for production!
+  secret: "your-very-secret-session-key-here-minimum-32-chars"
+  
+  # Name of the HTTP cookie used to store session ID
+  cookie_name: "compas-auth-session"
+  
+  # Session timeout in seconds (3600 = 1 hour)
+  max_age: 3600
+
+# =============================================================================
+# REVERSE PROXY CONFIGURATION
+# =============================================================================
+proxy:
+  # Multi-upstream routing: define different backend services for different paths
+  # Routes are matched in order, so put more specific paths first
+  routes:
+    # SCL Data Service - handles SCL file operations
+    - path: "/api/scl"
+      upstream_url: "http://localhost:8082"
+      strip_path: true  # Remove "/api/scl" prefix when forwarding to upstream
+      
+    # History Service - handles historical data queries
+    - path: "/api/history"
+      upstream_url: "http://localhost:8083"
+      strip_path: true  # Remove "/api/history" prefix when forwarding
+      
+    # Location Service - handles geographical data
+    - path: "/api/location"
+      upstream_url: "http://localhost:8084"
+      strip_path: true  # Remove "/api/location" prefix when forwarding
+      
+    # Frontend/Default - catch-all route for frontend application
+    - path: "/"
+      upstream_url: "http://localhost:8085"
+      strip_path: false  # Keep full path when forwarding to frontend
+
+# =============================================================================
+# SECURITY CONFIGURATION
+# =============================================================================
+security:
+  # CORS: List of allowed origins for cross-origin requests
+  # Add your frontend domains here
+  allowed_origins:
+    - "http://localhost:3000"  # Development frontend
+    - "http://localhost:8080"  # Auth gateway itself
+    - "https://your-frontend-domain.com"  # Production frontend
+
+# =============================================================================
+# LOGGING CONFIGURATION
+# =============================================================================
+logging:
+  # Log level: debug, info, warn, error
+  # Use "debug" for development, "info" or "warn" for production
+  level: "info"
+  
+  # Log format: json (structured), text (human-readable)
+  # Use "json" for production (better for log aggregation), "text" for development
+  format: "json"
+
+# =============================================================================
+# HEALTH CHECK CONFIGURATION (Optional)
+# =============================================================================
+health:
+  # Enable health check endpoint at /health
+  enabled: true
+  
+  # Include upstream service health in overall health status
+  check_upstreams: false

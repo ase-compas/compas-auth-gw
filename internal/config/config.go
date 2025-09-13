@@ -3,17 +3,82 @@ package config
 import (
 	"fmt"
 	"os"
-	"strconv"
+	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // UpstreamRoute represents a routing rule for upstream services
 type UpstreamRoute struct {
-	Path        string `json:"path"`         // URL path prefix to match
-	UpstreamURL string `json:"upstream_url"` // Target upstream URL
-	StripPath   bool   `json:"strip_path"`   // Whether to strip the path prefix when forwarding
+	Path        string `json:"path" yaml:"path"`                 // URL path prefix to match
+	UpstreamURL string `json:"upstream_url" yaml:"upstream_url"` // Target upstream URL
+	StripPath   bool   `json:"strip_path" yaml:"strip_path"`     // Whether to strip the path prefix when forwarding
 }
 
-// Config holds the application configuration
+// ServerConfig holds server-specific configuration
+type ServerConfig struct {
+	Port string `yaml:"port"`
+	Host string `yaml:"host"`
+}
+
+// TLSConfig holds TLS-specific configuration
+type TLSConfig struct {
+	CertFile           string `yaml:"cert_file"`
+	KeyFile            string `yaml:"key_file"`
+	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"`
+}
+
+// OIDCConfig holds OpenID Connect configuration
+type OIDCConfig struct {
+	ProviderURL  string `yaml:"provider_url"`
+	ClientID     string `yaml:"client_id"`
+	ClientSecret string `yaml:"client_secret"`
+	RedirectURL  string `yaml:"redirect_url"`
+	Scopes       string `yaml:"scopes"`
+}
+
+// SessionConfig holds session management configuration
+type SessionConfig struct {
+	Secret     string `yaml:"secret"`
+	CookieName string `yaml:"cookie_name"`
+	MaxAge     int    `yaml:"max_age"`
+}
+
+// ProxyConfig holds proxy-specific configuration
+type ProxyConfig struct {
+	Routes []UpstreamRoute `yaml:"routes"`
+}
+
+// SecurityConfig holds security-specific configuration
+type SecurityConfig struct {
+	AllowedOrigins []string `yaml:"allowed_origins"`
+}
+
+// LoggingConfig holds logging configuration
+type LoggingConfig struct {
+	Level  string `yaml:"level"`
+	Format string `yaml:"format"`
+}
+
+// HealthConfig holds health check configuration
+type HealthConfig struct {
+	Enabled        bool `yaml:"enabled"`
+	CheckUpstreams bool `yaml:"check_upstreams"`
+}
+
+// YAMLConfig represents the YAML configuration structure
+type YAMLConfig struct {
+	Server   ServerConfig   `yaml:"server"`
+	TLS      TLSConfig      `yaml:"tls"`
+	OIDC     OIDCConfig     `yaml:"oidc"`
+	Session  SessionConfig  `yaml:"session"`
+	Proxy    ProxyConfig    `yaml:"proxy"`
+	Security SecurityConfig `yaml:"security"`
+	Logging  LoggingConfig  `yaml:"logging"`
+	Health   HealthConfig   `yaml:"health"`
+}
+
+// Config holds the application configuration (internal representation)
 type Config struct {
 	// Server configuration
 	Port string
@@ -37,49 +102,33 @@ type Config struct {
 	TLSCertFile        string
 	TLSKeyFile         string
 	InsecureSkipVerify bool
+
+	// Logging configuration
+	LogLevel  string
+	LogFormat string
+
+	// Health configuration
+	HealthEnabled        bool
+	HealthCheckUpstreams bool
 }
 
-// LoadConfig loads configuration from environment variables
+// LoadConfig loads configuration from YAML file
 func LoadConfig() (*Config, error) {
-	config := &Config{
-		Port:              getEnvOrDefault("PORT", "8080"),
-		Host:              getEnvOrDefault("HOST", "0.0.0.0"),
-		OIDCProviderURL:   getEnvOrDefault("OIDC_PROVIDER_URL", ""),
-		OIDCClientID:      getEnvOrDefault("OIDC_CLIENT_ID", ""),
-		OIDCClientSecret:  getEnvOrDefault("OIDC_CLIENT_SECRET", ""),
-		OIDCRedirectURL:   getEnvOrDefault("OIDC_REDIRECT_URL", ""),
-		SessionSecret:     getEnvOrDefault("SESSION_SECRET", ""),
-		SessionCookieName: getEnvOrDefault("SESSION_COOKIE_NAME", "compas-session"),
-		TLSCertFile:       getEnvOrDefault("TLS_CERT_FILE", ""),
-		TLSKeyFile:        getEnvOrDefault("TLS_KEY_FILE", ""),
+	// Require YAML configuration file
+	configFile := os.Getenv("CONFIG_FILE")
+	if configFile == "" {
+		return nil, fmt.Errorf("CONFIG_FILE environment variable must be set to point to a YAML configuration file")
 	}
 
-	// Parse upstream routes
-	if err := config.parseUpstreamRoutes(); err != nil {
-		return nil, fmt.Errorf("failed to parse upstream routes: %v", err)
-	}
-
-	// Parse session max age
-	sessionMaxAge := getEnvOrDefault("SESSION_MAX_AGE", "3600")
-	maxAge, err := strconv.Atoi(sessionMaxAge)
+	config, err := LoadFromYAML(configFile)
 	if err != nil {
-		return nil, fmt.Errorf("invalid SESSION_MAX_AGE: %v", err)
+		return nil, fmt.Errorf("failed to load YAML configuration: %v", err)
 	}
-	config.SessionMaxAge = maxAge
 
-	// Parse insecure skip verify
-	insecureSkipVerify := getEnvOrDefault("INSECURE_SKIP_VERIFY", "false")
-	config.InsecureSkipVerify = insecureSkipVerify == "true"
+	// Allow environment variables to override sensitive values
+	config.applyEnvironmentOverrides()
 
-	// Parse scopes (comma-separated)
-	scopesStr := getEnvOrDefault("OIDC_SCOPES", "openid,profile,email")
-	config.OIDCScopes = parseStringSlice(scopesStr)
-
-	// Parse allowed origins (comma-separated)
-	originsStr := getEnvOrDefault("ALLOWED_ORIGINS", "*")
-	config.AllowedOrigins = parseStringSlice(originsStr)
-
-	// Validate required fields
+	// Validate the final configuration
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
@@ -87,143 +136,139 @@ func LoadConfig() (*Config, error) {
 	return config, nil
 }
 
+// LoadFromYAML loads configuration from a YAML file
+func LoadFromYAML(filepath string) (*Config, error) {
+	data, err := os.ReadFile(filepath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file %s: %v", filepath, err)
+	}
+
+	var yamlConfig YAMLConfig
+	if err := yaml.Unmarshal(data, &yamlConfig); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML config: %v", err)
+	}
+
+	// Convert YAML config to internal Config structure
+	config := &Config{
+		Port:                 yamlConfig.Server.Port,
+		Host:                 yamlConfig.Server.Host,
+		OIDCProviderURL:      yamlConfig.OIDC.ProviderURL,
+		OIDCClientID:         yamlConfig.OIDC.ClientID,
+		OIDCClientSecret:     yamlConfig.OIDC.ClientSecret,
+		OIDCRedirectURL:      yamlConfig.OIDC.RedirectURL,
+		UpstreamRoutes:       yamlConfig.Proxy.Routes,
+		SessionSecret:        yamlConfig.Session.Secret,
+		SessionCookieName:    yamlConfig.Session.CookieName,
+		SessionMaxAge:        yamlConfig.Session.MaxAge,
+		AllowedOrigins:       yamlConfig.Security.AllowedOrigins,
+		TLSCertFile:          yamlConfig.TLS.CertFile,
+		TLSKeyFile:           yamlConfig.TLS.KeyFile,
+		InsecureSkipVerify:   yamlConfig.TLS.InsecureSkipVerify,
+		LogLevel:             yamlConfig.Logging.Level,
+		LogFormat:            yamlConfig.Logging.Format,
+		HealthEnabled:        yamlConfig.Health.Enabled,
+		HealthCheckUpstreams: yamlConfig.Health.CheckUpstreams,
+	}
+
+	// Parse OIDC scopes
+	if yamlConfig.OIDC.Scopes != "" {
+		scopes := strings.Split(yamlConfig.OIDC.Scopes, ",")
+		for i, scope := range scopes {
+			scopes[i] = strings.TrimSpace(scope)
+		}
+		config.OIDCScopes = scopes
+	}
+
+	// Set defaults for optional fields
+	config.setDefaults()
+
+	return config, nil
+}
+
+// applyEnvironmentOverrides allows environment variables to override YAML config for sensitive values
+func (c *Config) applyEnvironmentOverrides() {
+	// Override critical values with environment variables if they exist
+	if val := os.Getenv("OIDC_CLIENT_SECRET"); val != "" {
+		c.OIDCClientSecret = val
+	}
+	if val := os.Getenv("SESSION_SECRET"); val != "" {
+		c.SessionSecret = val
+	}
+	if val := os.Getenv("PORT"); val != "" {
+		c.Port = val
+	}
+	if val := os.Getenv("HOST"); val != "" {
+		c.Host = val
+	}
+	if val := os.Getenv("TLS_CERT_FILE"); val != "" {
+		c.TLSCertFile = val
+	}
+	if val := os.Getenv("TLS_KEY_FILE"); val != "" {
+		c.TLSKeyFile = val
+	}
+	if val := os.Getenv("LOG_LEVEL"); val != "" {
+		c.LogLevel = val
+	}
+	if val := os.Getenv("LOG_FORMAT"); val != "" {
+		c.LogFormat = val
+	}
+}
+
+// setDefaults sets default values for optional configuration fields
+func (c *Config) setDefaults() {
+	if c.Port == "" {
+		c.Port = "8080"
+	}
+	if c.Host == "" {
+		c.Host = "0.0.0.0"
+	}
+	if c.SessionCookieName == "" {
+		c.SessionCookieName = "compas-session"
+	}
+	if c.SessionMaxAge == 0 {
+		c.SessionMaxAge = 3600
+	}
+	if len(c.OIDCScopes) == 0 {
+		c.OIDCScopes = []string{"openid", "profile", "email"}
+	}
+	if len(c.AllowedOrigins) == 0 {
+		c.AllowedOrigins = []string{"*"}
+	}
+	if c.LogLevel == "" {
+		c.LogLevel = "info"
+	}
+	if c.LogFormat == "" {
+		c.LogFormat = "text"
+	}
+}
+
 // validate checks if all required configuration values are set
 func (c *Config) validate() error {
 	required := map[string]string{
-		"OIDC_PROVIDER_URL":  c.OIDCProviderURL,
-		"OIDC_CLIENT_ID":     c.OIDCClientID,
-		"OIDC_CLIENT_SECRET": c.OIDCClientSecret,
-		"OIDC_REDIRECT_URL":  c.OIDCRedirectURL,
-		"SESSION_SECRET":     c.SessionSecret,
+		"OIDC Provider URL":  c.OIDCProviderURL,
+		"OIDC Client ID":     c.OIDCClientID,
+		"OIDC Client Secret": c.OIDCClientSecret,
+		"OIDC Redirect URL":  c.OIDCRedirectURL,
+		"Session Secret":     c.SessionSecret,
 	}
 
 	for key, value := range required {
 		if value == "" {
-			return fmt.Errorf("required environment variable %s is not set", key)
+			return fmt.Errorf("required configuration %s is not set", key)
 		}
 	}
 
 	// Validate upstream routes
 	if len(c.UpstreamRoutes) == 0 {
-		return fmt.Errorf("no upstream routes configured. Set UPSTREAM_ROUTES environment variable")
+		return fmt.Errorf("no upstream routes configured. Define proxy.routes in YAML configuration")
+	}
+
+	// Validate session secret length
+	if len(c.SessionSecret) < 32 {
+		return fmt.Errorf("session secret must be at least 32 characters long")
 	}
 
 	return nil
 }
 
 // getEnvOrDefault returns the environment variable value or a default value
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-// parseStringSlice parses a comma-separated string into a slice
-func parseStringSlice(s string) []string {
-	if s == "" {
-		return []string{}
-	}
-
-	var result []string
-	for _, item := range splitAndTrim(s, ",") {
-		if item != "" {
-			result = append(result, item)
-		}
-	}
-	return result
-}
-
-// splitAndTrim splits a string and trims whitespace from each part
-func splitAndTrim(s, sep string) []string {
-	var result []string
-	for _, item := range splitString(s, sep) {
-		trimmed := trimSpace(item)
-		result = append(result, trimmed)
-	}
-	return result
-}
-
-// splitString splits a string by separator
-func splitString(s, sep string) []string {
-	if s == "" {
-		return []string{}
-	}
-
-	var result []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if i+len(sep) <= len(s) && s[i:i+len(sep)] == sep {
-			result = append(result, s[start:i])
-			start = i + len(sep)
-			i += len(sep) - 1
-		}
-	}
-	result = append(result, s[start:])
-	return result
-}
-
-// trimSpace removes leading and trailing whitespace
-func trimSpace(s string) string {
-	start := 0
-	end := len(s)
-
-	// Find first non-space character
-	for start < end && isSpace(s[start]) {
-		start++
-	}
-
-	// Find last non-space character
-	for end > start && isSpace(s[end-1]) {
-		end--
-	}
-
-	return s[start:end]
-}
-
-// isSpace checks if a character is whitespace
-func isSpace(c byte) bool {
-	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
-}
-
-// parseUpstreamRoutes parses upstream route configuration from environment variables
-func (c *Config) parseUpstreamRoutes() error {
-	// Parse upstream routes from environment variables
-	// Format: UPSTREAM_ROUTES="path1,url1,strip;path2,url2,strip;..."
-	routesEnv := getEnvOrDefault("UPSTREAM_ROUTES", "")
-
-	if routesEnv != "" {
-		routes := splitString(routesEnv, ";")
-		for _, route := range routes {
-			route = trimSpace(route)
-			if route == "" {
-				continue
-			}
-
-			parts := splitString(route, ",")
-			if len(parts) < 2 || len(parts) > 3 {
-				return fmt.Errorf("invalid route format: %s (expected path,url or path,url,strip)", route)
-			}
-
-			path := trimSpace(parts[0])
-			upstreamURL := trimSpace(parts[1])
-			stripPath := false
-
-			if len(parts) == 3 {
-				stripPath = trimSpace(parts[2]) == "true"
-			}
-
-			if path == "" || upstreamURL == "" {
-				return fmt.Errorf("invalid route: path and URL cannot be empty")
-			}
-
-			c.UpstreamRoutes = append(c.UpstreamRoutes, UpstreamRoute{
-				Path:        path,
-				UpstreamURL: upstreamURL,
-				StripPath:   stripPath,
-			})
-		}
-	}
-
-	return nil
-}
