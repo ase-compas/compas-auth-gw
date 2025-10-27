@@ -51,12 +51,6 @@ jobs:
       #       type=sha,prefix={{branch}}-
       #       type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
-      - name: Extract Docker image metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/ase-compas/compas/compas-auth-gw
-
       # - name: Log in to registry
       #   run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
@@ -78,15 +72,29 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image
-        if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@v5
+      - name: Extract Docker image metadata
+        id: meta
+        uses: docker/metadata-action@v5
         with:
-          context: .
+          images: ghcr.io/ase-compas/compas/compas-auth-gw
+
+      - name: Build and push Docker image
+        id: push
+        uses: docker/build-push-action@v6.15.0
+        with:
+          context: ./service
           push: true
-          tags: latest
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      # - name: Build and push Docker image
+      #   uses: docker/build-push-action@v5
+      #   with:
+      #     context: .
+      #     push: true
+      #     tags: latest
+      #     cache-from: type=local,src=/tmp/.buildx-cache
+      #     cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
 
       # - name: Move cache
       #   run: |
