@@ -12,6 +12,7 @@ env:
   IMAGE_NAME: compas-auth-gw
 
 permissions:
+  contents: read
   packages: write
 
 jobs:
