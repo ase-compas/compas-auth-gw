@@ -11,6 +11,9 @@ on:
 env:
   IMAGE_NAME: compas-auth-gw
 
+permissions:
+  packages: write
+
 jobs:
   build:
     name: Build Docker Image 'compas-auth-gw'
