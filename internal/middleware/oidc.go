@@ -107,7 +107,7 @@ func (m *OIDCMiddleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
 		// Skip authentication for health check and callback endpoints
-		if r.URL.Path == "/health" || r.URL.Path == "/auth/callback" {
+		if r.URL.Path == "/health" || r.URL.Path == "/oidc/callback" {
 			log.Printf("Skipping authentication for: %s", r.URL.Path)
 			next.ServeHTTP(w, r)
 			return

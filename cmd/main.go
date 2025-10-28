@@ -60,7 +60,7 @@ func main() {
 	})
 
 	// OIDC callback endpoint
-	mux.HandleFunc("/auth/callback", oidcMiddleware.HandleCallback)
+	mux.HandleFunc("/oidc/callback", oidcMiddleware.HandleCallback)
 
 	// User info endpoint - wrapped with OIDC middleware
 	userInfoHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

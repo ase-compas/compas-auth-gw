@@ -19,7 +19,7 @@ oidc:
   provider_url: "http://localhost:8081/auth/realms/compas"
   client_id: "compas-auth-proxy"
   client_secret: "your-client-secret-here"
-  redirect_url: "http://localhost:8080/auth/callback"
+  redirect_url: "http://localhost:8080/oidc/callback"
   scopes: "openid,profile,email"
 
 # Session management configuration

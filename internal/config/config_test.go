@@ -17,7 +17,7 @@ oidc:
   provider_url: "http://test-provider.com"
   client_id: "test-client"
   client_secret: "test-secret-very-long-to-meet-requirements"
-  redirect_url: "http://localhost:9090/auth/callback"
+  redirect_url: "http://localhost:9090/oidc/callback"
   scopes: "openid,profile,email"
 
 session:
@@ -111,7 +111,7 @@ oidc:
   provider_url: "http://test-provider.com"
   client_id: "test-client"
   client_secret: "original-secret-very-long-to-meet-requirements"
-  redirect_url: "http://localhost:8080/auth/callback"
+  redirect_url: "http://localhost:8080/oidc/callback"
   scopes: "openid,profile,email"
 
 session:
@@ -216,7 +216,7 @@ oidc:
   provider_url: "http://localhost:8081/auth/realms/compas"
   client_id: "test-client"
   client_secret: "test-secret-for-default-config-testing"
-  redirect_url: "http://localhost:8080/auth/callback"
+  redirect_url: "http://localhost:8080/oidc/callback"
   scopes: "openid,profile,email"
 
 session:

@@ -31,7 +31,7 @@ Ein moderner Authentication Proxy für das CoMPAS (Common Platform for Substatio
 
 ### Voraussetzungen
 
-- Go 1.21 oder höher
+- Go 1.20 oder höher
 - Docker und Docker Compose (optional)
 - OIDC Provider (z.B. Keycloak)
 
@@ -98,7 +98,7 @@ oidc:
   provider_url: "http://localhost:8081/auth/realms/compas"
   client_id: "compas-auth-proxy"
   client_secret: "ihr-client-secret"
-  redirect_url: "http://localhost:8080/auth/callback"
+  redirect_url: "http://localhost:8080/oidc/callback"
   scopes: "openid,profile,email"
 
 # Session-Verwaltung
@@ -177,7 +177,7 @@ proxy:
 ## API Endpoints
 
 ### Authentifizierung
-- `GET /auth/callback` - OIDC Callback Endpoint
+- `GET /oidc/callback` - OIDC Callback Endpoint
 - `GET /auth/logout` - Benutzer Logout
 - `GET /auth/userinfo` - Benutzerinformationen abrufen
 
@@ -219,6 +219,25 @@ make dev
 ```
 
 ## Docker Deployment
+
+### Mit GitHub Actions (CI/CD)
+
+Das Projekt verwendet GitHub Actions für automatisierte Builds und Docker Image Publishing:
+
+- **Entwicklung**: Jeder Push zu `main` oder `develop` erstellt automatisch ein Docker Image
+- **Releases**: Veröffentlichungen erstellen getaggte Images auf Docker Hub und GitHub Container Registry
+- Mehr Details: [GitHub Actions Workflows](.github/WORKFLOWS.md)
+
+#### Images abrufen:
+
+```bash
+# Von GitHub Container Registry (automatisch bei jedem Build)
+docker pull ghcr.io/ase-compas/compas-auth-gw:latest
+docker pull ghcr.io/ase-compas/compas-auth-gw:v1.0.0
+
+# Von Docker Hub (nur bei Releases)
+docker pull <username>/compas-auth-gw:latest
+```
 
 ### Produktions-Deployment
 
