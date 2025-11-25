@@ -35,15 +35,24 @@ proxy:
     - path: "/api/scl"
       upstream_url: "http://localhost:8082"
       strip_path: true
+      enable_websocket: false
     - path: "/api/history"
       upstream_url: "http://localhost:8083"
       strip_path: true
+      enable_websocket: false
     - path: "/api/location"
       upstream_url: "http://localhost:8084"
       strip_path: true
+      enable_websocket: false
+    # Example WebSocket-enabled route
+    - path: "/ws"
+      upstream_url: "http://localhost:8086"
+      strip_path: false
+      enable_websocket: true
     - path: "/"
       upstream_url: "http://localhost:8085"
       strip_path: false
+      enable_websocket: false
 
 # Security configuration
 security:

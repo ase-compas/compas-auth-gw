@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ase-compas/compas-auth-proxy/internal/config"
+	"github.com/koding/websocketproxy"
 )
 
 // MultiProxyMiddleware handles reverse proxy functionality with multiple upstreams
@@ -19,10 +20,12 @@ type MultiProxyMiddleware struct {
 
 // ProxyRoute represents a configured proxy route
 type ProxyRoute struct {
-	PathPrefix  string
-	UpstreamURL *url.URL
-	Proxy       *httputil.ReverseProxy
-	StripPath   bool
+	PathPrefix      string
+	UpstreamURL     *url.URL
+	Proxy           *httputil.ReverseProxy
+	WebSocketProxy  *websocketproxy.WebsocketProxy
+	StripPath       bool
+	EnableWebSocket bool
 }
 
 // NewMultiProxyMiddleware creates a new multi-upstream proxy middleware
@@ -41,6 +44,32 @@ func NewMultiProxyMiddleware(cfg *config.Config) (*MultiProxyMiddleware, error) 
 
 		proxy := httputil.NewSingleHostReverseProxy(upstreamURL)
 
+		// Create WebSocket proxy if enabled for this route
+		var wsProxy *websocketproxy.WebsocketProxy
+		if routeConfig.EnableWebSocket {
+			// Convert http(s) URL to ws(s) for WebSocket
+			wsURL := *upstreamURL
+			if wsURL.Scheme == "https" {
+				wsURL.Scheme = "wss"
+			} else {
+				wsURL.Scheme = "ws"
+			}
+			wsProxy = websocketproxy.NewProxy(&wsURL)
+			// Customize WebSocket proxy director
+			wsProxy.Director = func(incoming *http.Request, out http.Header) {
+				// Add authentication headers to WebSocket upgrade request
+				if userInfo := GetUserFromContext(incoming.Context()); userInfo != nil {
+					out.Set("X-Auth-User", userInfo.Sub)
+					out.Set("X-Auth-Email", userInfo.Email)
+					out.Set("X-Auth-Name", userInfo.Name)
+					out.Set("X-Auth-Username", userInfo.PreferredUsername)
+				}
+				if accessToken := GetAccessTokenFromContext(incoming.Context()); accessToken != "" {
+					out.Set("Authorization", "Bearer "+accessToken)
+				}
+			}
+		}
+
 		// Customize the proxy director
 		originalDirector := proxy.Director
 		proxy.Director = func(req *http.Request) {
@@ -58,12 +87,15 @@ func NewMultiProxyMiddleware(cfg *config.Config) (*MultiProxyMiddleware, error) 
 				}
 			}
 
-			// Remove hop-by-hop headers
-			req.Header.Del("Connection")
-			req.Header.Del("Proxy-Connection")
-			req.Header.Del("Te")
-			req.Header.Del("Trailer")
-			req.Header.Del("Upgrade")
+			// Remove hop-by-hop headers (but preserve them for WebSocket routes)
+			isWebSocketUpgrade := strings.ToLower(req.Header.Get("Upgrade")) == "websocket"
+			if !isWebSocketUpgrade || !routeConfig.EnableWebSocket {
+				req.Header.Del("Connection")
+				req.Header.Del("Proxy-Connection")
+				req.Header.Del("Te")
+				req.Header.Del("Trailer")
+				req.Header.Del("Upgrade")
+			}
 
 			log.Printf("Proxying %s %s to %s%s", req.Method, req.URL.Path, upstreamURL.String(), req.URL.Path)
 		}
@@ -75,10 +107,12 @@ func NewMultiProxyMiddleware(cfg *config.Config) (*MultiProxyMiddleware, error) 
 		}
 
 		route := ProxyRoute{
-			PathPrefix:  routeConfig.Path,
-			UpstreamURL: upstreamURL,
-			Proxy:       proxy,
-			StripPath:   routeConfig.StripPath,
+			PathPrefix:      routeConfig.Path,
+			UpstreamURL:     upstreamURL,
+			Proxy:           proxy,
+			WebSocketProxy:  wsProxy,
+			StripPath:       routeConfig.StripPath,
+			EnableWebSocket: routeConfig.EnableWebSocket,
 		}
 
 		middleware.routes = append(middleware.routes, route)
@@ -89,7 +123,11 @@ func NewMultiProxyMiddleware(cfg *config.Config) (*MultiProxyMiddleware, error) 
 
 	log.Printf("Configured %d proxy routes:", len(middleware.routes))
 	for _, route := range middleware.routes {
-		log.Printf("  %s -> %s (strip: %v)", route.PathPrefix, route.UpstreamURL.String(), route.StripPath)
+		wsStatus := "no"
+		if route.EnableWebSocket {
+			wsStatus = "yes"
+		}
+		log.Printf("  %s -> %s (strip: %v, websocket: %s)", route.PathPrefix, route.UpstreamURL.String(), route.StripPath, wsStatus)
 	}
 
 	return middleware, nil
@@ -115,7 +153,17 @@ func (m *MultiProxyMiddleware) Handler() http.Handler {
 			return
 		}
 
-		// Proxy the request
+		// Check if this is a WebSocket upgrade request
+		isWebSocketUpgrade := strings.ToLower(r.Header.Get("Upgrade")) == "websocket"
+
+		// Use WebSocket proxy if enabled and upgrade is requested
+		if isWebSocketUpgrade && route.EnableWebSocket && route.WebSocketProxy != nil {
+			log.Printf("WebSocket upgrade request for %s", r.URL.Path)
+			route.WebSocketProxy.ServeHTTP(w, r)
+			return
+		}
+
+		// Proxy the regular HTTP request
 		route.Proxy.ServeHTTP(w, r)
 	})
 }

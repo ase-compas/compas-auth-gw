@@ -10,9 +10,10 @@ import (
 
 // UpstreamRoute represents a routing rule for upstream services
 type UpstreamRoute struct {
-	Path        string `json:"path" yaml:"path"`                 // URL path prefix to match
-	UpstreamURL string `json:"upstream_url" yaml:"upstream_url"` // Target upstream URL
-	StripPath   bool   `json:"strip_path" yaml:"strip_path"`     // Whether to strip the path prefix when forwarding
+	Path            string `json:"path" yaml:"path"`                         // URL path prefix to match
+	UpstreamURL     string `json:"upstream_url" yaml:"upstream_url"`         // Target upstream URL
+	StripPath       bool   `json:"strip_path" yaml:"strip_path"`             // Whether to strip the path prefix when forwarding
+	EnableWebSocket bool   `json:"enable_websocket" yaml:"enable_websocket"` // Whether to enable WebSocket proxying for this route
 }
 
 // ServerConfig holds server-specific configuration
