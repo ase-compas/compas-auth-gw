@@ -130,8 +130,8 @@ func (m *OIDCMiddleware) Handler(next http.Handler) http.Handler {
 		}
 
 		sessionData, err := m.sessionStore.Get(sessionID)
-		if err != nil || sessionData == nil {
-			log.Printf("Invalid session %s, redirecting to login", sessionID)
+		if err != nil || sessionData == nil || sessionData.ExpiresAt.Before(time.Now()) {
+			log.Printf("Invalid or expired session %s, redirecting to login", sessionID)
 			m.redirectToLogin(w, r)
 			return
 		}
