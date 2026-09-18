@@ -57,11 +57,12 @@ type SessionStore interface {
 
 // SessionData represents session information
 type SessionData struct {
-	UserInfo     *UserInfo `json:"user_info"`
-	AccessToken  string    `json:"access_token"`
-	RefreshToken string    `json:"refresh_token"`
-	ExpiresAt    time.Time `json:"expires_at"`
-	State        string    `json:"state"`
+	UserInfo             *UserInfo `json:"user_info"`
+	AccessToken          string    `json:"access_token"`
+	RefreshToken         string    `json:"refresh_token"`
+	ExpiresAt            time.Time `json:"expires_at"`
+	AccessTokenExpiresAt time.Time `json:"expires_in"`
+	State                string    `json:"state"`
 }
 
 // NewOIDCMiddleware creates a new OIDC middleware instance
@@ -136,8 +137,8 @@ func (m *OIDCMiddleware) Handler(next http.Handler) http.Handler {
 			return
 		}
 
-		if sessionData.ExpiresAt.Before(time.Now().Add(60 * time.Second)) {
-			log.Printf("Cookie session expires soon, refreshing session")
+		if sessionData.AccessTokenExpiresAt.Before(time.Now()) {
+			log.Printf("Access token expired, send refresh token")
 
 			refreshToken := sessionData.RefreshToken
 			if refreshToken == "" {
@@ -155,12 +156,13 @@ func (m *OIDCMiddleware) Handler(next http.Handler) http.Handler {
 				return
 			}
 
-			log.Printf("Refresh successful, new access token: %s", newTokenResp.AccessToken)
+			log.Printf("Refresh successful")
 			sessionData.AccessToken = newTokenResp.AccessToken
 			if newTokenResp.RefreshToken != "" {
 				sessionData.RefreshToken = newTokenResp.RefreshToken
 			}
 			sessionData.ExpiresAt = time.Now().Add(time.Duration(m.config.SessionMaxAge) * time.Second)
+			sessionData.AccessTokenExpiresAt = time.Now().Add(time.Duration(newTokenResp.ExpiresIn) * time.Second)
 
 			// For stronger security, rotate the session ID entirely
 			newSessionID := m.generateSessionID()
@@ -211,11 +213,12 @@ func (m *OIDCMiddleware) HandleCallback(w http.ResponseWriter, r *http.Request) 
 	// Create session
 	sessionID := m.generateSessionID()
 	sessionData := &SessionData{
-		UserInfo:     userInfo,
-		AccessToken:  tokenResp.AccessToken,
-		RefreshToken: tokenResp.RefreshToken,
-		ExpiresAt:    time.Now().Add(time.Duration(m.config.SessionMaxAge) * time.Second),
-		State:        state,
+		UserInfo:             userInfo,
+		AccessToken:          tokenResp.AccessToken,
+		RefreshToken:         tokenResp.RefreshToken,
+		ExpiresAt:            time.Now().Add(time.Duration(m.config.SessionMaxAge) * time.Second),
+		AccessTokenExpiresAt: time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second),
+		State:                state,
 	}
 
 	if err := m.sessionStore.Set(sessionID, sessionData); err != nil {
@@ -246,10 +249,6 @@ func (m *OIDCMiddleware) redirectToLogin(w http.ResponseWriter, r *http.Request)
 	query.Set("scope", strings.Join(m.config.OIDCScopes, " "))
 	query.Set("redirect_uri", m.config.OIDCRedirectURL)
 	query.Set("state", state)
-
-	// Force the user to actually re-authenticate instead of using Keycloak SSO
-	query.Set("prompt", "login")
-
 	authURL.RawQuery = query.Encode()
 
 	http.Redirect(w, r, authURL.String(), http.StatusFound)
@@ -369,21 +368,7 @@ func (m *OIDCMiddleware) handleLogout(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, cookie)
 	log.Printf("Session cookie %s cleared", m.config.SessionCookieName)
 
-	// Redirect to Keycloak to destroy the global SSO session
-	logoutURL, _ := url.Parse(m.providerConfig.Issuer + "/protocol/openid-connect/logout")
-	query := logoutURL.Query()
-	query.Set("client_id", m.config.OIDCClientID)
-
-	// Create redirect back URL
-	hostURL := "http://" + r.Host
-	if r.TLS != nil {
-		hostURL = "https://" + r.Host
-	}
-	query.Set("post_logout_redirect_uri", hostURL+"/")
-
-	logoutURL.RawQuery = query.Encode()
-
-	http.Redirect(w, r, logoutURL.String(), http.StatusFound)
+	http.Redirect(w, r, "/", http.StatusFound)
 }
 
 // getSessionID extracts session ID from request cookie
