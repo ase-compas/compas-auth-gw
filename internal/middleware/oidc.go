@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ase-compas/compas-auth-proxy/internal/config"
@@ -20,6 +21,8 @@ type OIDCMiddleware struct {
 	httpClient     *http.Client
 	providerConfig *ProviderConfig
 	sessionStore   SessionStore
+	stateMu        sync.Mutex
+	stateRedirect  map[string]string
 }
 
 // ProviderConfig represents OpenID Connect provider configuration
@@ -66,9 +69,10 @@ type SessionData struct {
 // NewOIDCMiddleware creates a new OIDC middleware instance
 func NewOIDCMiddleware(cfg *config.Config, sessionStore SessionStore) (*OIDCMiddleware, error) {
 	middleware := &OIDCMiddleware{
-		config:       cfg,
-		httpClient:   &http.Client{Timeout: 30 * time.Second},
-		sessionStore: sessionStore,
+		config:        cfg,
+		httpClient:    &http.Client{Timeout: 30 * time.Second},
+		sessionStore:  sessionStore,
+		stateRedirect: make(map[string]string),
 	}
 
 	// Discover provider configuration
@@ -152,6 +156,16 @@ func (m *OIDCMiddleware) HandleCallback(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	redirectURL := "/"
+	m.stateMu.Lock()
+	if originalURL, ok := m.stateRedirect[state]; ok {
+		delete(m.stateRedirect, state)
+		if isSafeRedirectTarget(originalURL) {
+			redirectURL = originalURL
+		}
+	}
+	m.stateMu.Unlock()
+
 	// Get authorization code
 	code := r.URL.Query().Get("code")
 	if code == "" {
@@ -190,18 +204,17 @@ func (m *OIDCMiddleware) HandleCallback(w http.ResponseWriter, r *http.Request) 
 	// Set session cookie
 	m.setSessionCookie(w, sessionID)
 
-	// Redirect to original URL or home
-	redirectURL := "/"
-	if originalURL := r.URL.Query().Get("redirect_uri"); originalURL != "" {
-		redirectURL = originalURL
-	}
-
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 
 // redirectToLogin redirects the user to the OIDC provider for authentication
 func (m *OIDCMiddleware) redirectToLogin(w http.ResponseWriter, r *http.Request) {
 	state := m.generateState()
+
+	originalURL := r.URL.RequestURI()
+	m.stateMu.Lock()
+	m.stateRedirect[state] = originalURL
+	m.stateMu.Unlock()
 
 	authURL, _ := url.Parse(m.providerConfig.AuthorizationEndpoint)
 	query := authURL.Query()
@@ -213,6 +226,19 @@ func (m *OIDCMiddleware) redirectToLogin(w http.ResponseWriter, r *http.Request)
 	authURL.RawQuery = query.Encode()
 
 	http.Redirect(w, r, authURL.String(), http.StatusFound)
+}
+
+func isSafeRedirectTarget(target string) bool {
+	if target == "" {
+		return false
+	}
+	if !strings.HasPrefix(target, "/") {
+		return false
+	}
+	if strings.HasPrefix(target, "//") {
+		return false
+	}
+	return true
 }
 
 // exchangeCodeForToken exchanges authorization code for access token
