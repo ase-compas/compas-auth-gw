@@ -23,6 +23,15 @@ type OIDCMiddleware struct {
 	sessionStore   SessionStore
 	stateMu        sync.Mutex
 	stateRedirect  map[string]string
+	sessionLocksMu sync.Mutex
+	sessionLocks   map[string]*sessionRequestLock
+}
+
+const accessTokenRefreshSkew = 30 * time.Second
+
+type sessionRequestLock struct {
+	mu         sync.Mutex
+	references int
 }
 
 // ProviderConfig represents OpenID Connect provider configuration
@@ -65,6 +74,7 @@ type SessionData struct {
 	RefreshToken         string    `json:"refresh_token"`
 	ExpiresAt            time.Time `json:"expires_at"`
 	AccessTokenExpiresAt time.Time `json:"expires_in"`
+	AccessTokenRefreshAt time.Time `json:"refresh_at"`
 	State                string    `json:"state"`
 }
 
@@ -75,6 +85,7 @@ func NewOIDCMiddleware(cfg *config.Config, sessionStore SessionStore) (*OIDCMidd
 		httpClient:    &http.Client{Timeout: 30 * time.Second},
 		sessionStore:  sessionStore,
 		stateRedirect: make(map[string]string),
+		sessionLocks:  make(map[string]*sessionRequestLock),
 	}
 
 	// Discover provider configuration
@@ -134,46 +145,9 @@ func (m *OIDCMiddleware) Handler(next http.Handler) http.Handler {
 			return
 		}
 
-		sessionData, err := m.sessionStore.Get(sessionID)
-		if err != nil || sessionData == nil || sessionData.ExpiresAt.Before(time.Now()) {
-			log.Printf("Invalid or expired session %s, redirecting to login", sessionID)
-			m.redirectToLogin(w, r)
+		sessionData, ok := m.renewSession(w, r, sessionID)
+		if !ok {
 			return
-		}
-
-		if sessionData.AccessTokenExpiresAt.Before(time.Now()) {
-			log.Printf("Access token expired, send refresh token")
-
-			refreshToken := sessionData.RefreshToken
-			if refreshToken == "" {
-				log.Printf("No refresh token found, redirecting to login")
-				m.sessionStore.Delete(sessionID) // Clean up invalid session immediately
-				m.redirectToLogin(w, r)
-				return
-			}
-
-			newTokenResp, err := m.refreshAccessToken(refreshToken)
-			if err != nil || newTokenResp == nil {
-				log.Printf("Refresh failed for session %s: %v", sessionID, err)
-				m.sessionStore.Delete(sessionID) // Clean up invalid session immediately
-				m.redirectToLogin(w, r)
-				return
-			}
-
-			log.Printf("Refresh successful")
-			sessionData.AccessToken = newTokenResp.AccessToken
-			if newTokenResp.RefreshToken != "" {
-				sessionData.RefreshToken = newTokenResp.RefreshToken
-			}
-			sessionData.ExpiresAt = time.Now().Add(time.Duration(m.config.SessionMaxAge) * time.Second)
-			sessionData.AccessTokenExpiresAt = time.Now().Add(time.Duration(newTokenResp.ExpiresIn) * time.Second)
-
-			// For stronger security, rotate the session ID entirely
-			newSessionID := m.generateSessionID()
-			_ = m.sessionStore.Set(newSessionID, sessionData)
-			_ = m.sessionStore.Delete(sessionID)
-
-			m.setSessionCookie(w, newSessionID)
 		}
 
 		// Add user information to request context
@@ -226,12 +200,19 @@ func (m *OIDCMiddleware) HandleCallback(w http.ResponseWriter, r *http.Request) 
 
 	// Create session
 	sessionID := m.generateSessionID()
+	now := time.Now()
+	accessTokenExpiresAt, accessTokenRefreshAt, err := tokenTiming(now, tokenResp)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Invalid token response: %v", err), http.StatusInternalServerError)
+		return
+	}
 	sessionData := &SessionData{
 		UserInfo:             userInfo,
 		AccessToken:          tokenResp.AccessToken,
 		RefreshToken:         tokenResp.RefreshToken,
-		ExpiresAt:            time.Now().Add(time.Duration(m.config.SessionMaxAge) * time.Second),
-		AccessTokenExpiresAt: time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second),
+		ExpiresAt:            now.Add(time.Duration(m.config.SessionMaxAge) * time.Second),
+		AccessTokenExpiresAt: accessTokenExpiresAt,
+		AccessTokenRefreshAt: accessTokenRefreshAt,
 		State:                state,
 	}
 
@@ -241,7 +222,7 @@ func (m *OIDCMiddleware) HandleCallback(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Set session cookie
-	m.setSessionCookie(w, sessionID)
+	m.setSessionCookie(w, r, sessionID)
 
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
@@ -378,7 +359,9 @@ func (m *OIDCMiddleware) getUserInfo(accessToken string) (*UserInfo, error) {
 func (m *OIDCMiddleware) handleLogout(w http.ResponseWriter, r *http.Request) {
 	sessionID := m.getSessionID(r)
 	if sessionID != "" {
+		unlockSession := m.lockSession(sessionID)
 		m.sessionStore.Delete(sessionID)
+		unlockSession()
 		log.Printf("User logged out, session %s deleted", sessionID)
 	}
 
@@ -406,15 +389,124 @@ func (m *OIDCMiddleware) getSessionID(r *http.Request) string {
 	return cookie.Value
 }
 
+func (m *OIDCMiddleware) renewSession(w http.ResponseWriter, r *http.Request, sessionID string) (*SessionData, bool) {
+	unlockSession := m.lockSession(sessionID)
+	defer unlockSession()
+
+	sessionData, err := m.sessionStore.Get(sessionID)
+	now := time.Now()
+	if err != nil || sessionData == nil || !sessionData.ExpiresAt.After(now) {
+		log.Printf("Invalid or expired session %s, redirecting to login", sessionID)
+		m.sessionStore.Delete(sessionID)
+		m.redirectToLogin(w, r)
+		return nil, false
+	}
+
+	refreshAt := sessionData.AccessTokenRefreshAt
+	if refreshAt.IsZero() {
+		refreshAt = sessionData.AccessTokenExpiresAt.Add(-accessTokenRefreshSkew)
+	}
+	if !refreshAt.After(now) {
+		log.Printf("Access token is near expiry, refreshing it")
+
+		if sessionData.RefreshToken == "" {
+			log.Printf("No refresh token found, redirecting to login")
+			m.sessionStore.Delete(sessionID)
+			m.redirectToLogin(w, r)
+			return nil, false
+		}
+
+		newTokenResp, err := m.refreshAccessToken(sessionData.RefreshToken)
+		if err != nil || newTokenResp == nil {
+			log.Printf("Refresh failed for session %s: %v", sessionID, err)
+			m.sessionStore.Delete(sessionID)
+			m.redirectToLogin(w, r)
+			return nil, false
+		}
+
+		refreshedAt := time.Now()
+		accessTokenExpiresAt, accessTokenRefreshAt, err := tokenTiming(refreshedAt, newTokenResp)
+		if err != nil {
+			log.Printf("Invalid token refresh response for session %s: %v", sessionID, err)
+			m.sessionStore.Delete(sessionID)
+			m.redirectToLogin(w, r)
+			return nil, false
+		}
+
+		log.Printf("Refresh successful")
+		sessionData.AccessToken = newTokenResp.AccessToken
+		if newTokenResp.RefreshToken != "" {
+			sessionData.RefreshToken = newTokenResp.RefreshToken
+		}
+		sessionData.AccessTokenExpiresAt = accessTokenExpiresAt
+		sessionData.AccessTokenRefreshAt = accessTokenRefreshAt
+	}
+
+	// Renew the idle timeout for both the server-side session and browser cookie.
+	sessionData.ExpiresAt = time.Now().Add(time.Duration(m.config.SessionMaxAge) * time.Second)
+	if err := m.sessionStore.Set(sessionID, sessionData); err != nil {
+		log.Printf("Failed to renew session %s: %v", sessionID, err)
+		m.sessionStore.Delete(sessionID)
+		m.redirectToLogin(w, r)
+		return nil, false
+	}
+	m.setSessionCookie(w, r, sessionID)
+
+	return sessionData, true
+}
+
+func tokenTiming(issuedAt time.Time, token *TokenResponse) (time.Time, time.Time, error) {
+	if token.AccessToken == "" {
+		return time.Time{}, time.Time{}, fmt.Errorf("access token is empty")
+	}
+	if token.ExpiresIn <= 0 {
+		return time.Time{}, time.Time{}, fmt.Errorf("expires_in must be positive")
+	}
+
+	lifetime := time.Duration(token.ExpiresIn) * time.Second
+	refreshSkew := lifetime / 10
+	if refreshSkew > accessTokenRefreshSkew {
+		refreshSkew = accessTokenRefreshSkew
+	}
+
+	expiresAt := issuedAt.Add(lifetime)
+	return expiresAt, expiresAt.Add(-refreshSkew), nil
+}
+
+// lockSession serializes requests that can refresh the same session token.
+func (m *OIDCMiddleware) lockSession(sessionID string) func() {
+	m.sessionLocksMu.Lock()
+	lock := m.sessionLocks[sessionID]
+	if lock == nil {
+		lock = &sessionRequestLock{}
+		m.sessionLocks[sessionID] = lock
+	}
+	lock.references++
+	m.sessionLocksMu.Unlock()
+
+	lock.mu.Lock()
+
+	return func() {
+		lock.mu.Unlock()
+
+		m.sessionLocksMu.Lock()
+		lock.references--
+		if lock.references == 0 {
+			delete(m.sessionLocks, sessionID)
+		}
+		m.sessionLocksMu.Unlock()
+	}
+}
+
 // setSessionCookie sets the session cookie
-func (m *OIDCMiddleware) setSessionCookie(w http.ResponseWriter, sessionID string) {
+func (m *OIDCMiddleware) setSessionCookie(w http.ResponseWriter, r *http.Request, sessionID string) {
 	cookie := &http.Cookie{
 		Name:     m.config.SessionCookieName,
 		Value:    sessionID,
 		Path:     "/",
 		MaxAge:   m.config.SessionMaxAge,
 		HttpOnly: true,
-		Secure:   false, // Set to true in production with HTTPS
+		Secure:   r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"),
 		SameSite: http.SameSiteLaxMode,
 	}
 	http.SetCookie(w, cookie)

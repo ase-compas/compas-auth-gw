@@ -49,7 +49,7 @@ func (s *MemorySessionStore) Get(sessionID string) (*SessionData, error) {
 		return nil, fmt.Errorf("session expired")
 	}
 
-	return session, nil
+	return cloneSessionData(session), nil
 }
 
 // Set stores session data with the given session ID
@@ -57,7 +57,7 @@ func (s *MemorySessionStore) Set(sessionID string, data *SessionData) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.sessions[sessionID] = data
+	s.sessions[sessionID] = cloneSessionData(data)
 	return nil
 }
 
@@ -100,4 +100,18 @@ func (s *MemorySessionStore) Size() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.sessions)
+}
+
+func cloneSessionData(data *SessionData) *SessionData {
+	if data == nil {
+		return nil
+	}
+
+	clone := *data
+	if data.UserInfo != nil {
+		userInfo := *data.UserInfo
+		clone.UserInfo = &userInfo
+	}
+
+	return &clone
 }
