@@ -31,9 +31,10 @@ WORKDIR /app
 COPY --from=builder /app/compas-auth-proxy .
 
 # Create non-root user
-RUN adduser -D -s /bin/sh compas && \
-    chown -R compas:compas /app
-USER compas
+RUN addgroup -S -g 10001 app && \
+    adduser -S -D -H -u 10001 -G app app && \
+    chown -R 10001:10001 /app
+USER 10001:10001
 
 # Expose port
 EXPOSE 8080
