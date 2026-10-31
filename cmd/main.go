@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -89,7 +90,7 @@ func main() {
 	// Create server
 	server := &http.Server{
 		Addr:         fmt.Sprintf("%s:%s", cfg.Host, cfg.Port),
-		Handler:      loggingMiddleware(mux),
+		Handler:      loggingMiddleware(mux, cfg.LogLevel),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  120 * time.Second,
@@ -129,7 +130,7 @@ func main() {
 }
 
 // loggingMiddleware provides request logging
-func loggingMiddleware(next http.Handler) http.Handler {
+func loggingMiddleware(next http.Handler, logLevel string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
@@ -139,6 +140,13 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(wrapper, r)
 
 		duration := time.Since(start)
+		if r.URL.Path == "/health" {
+			if strings.EqualFold(logLevel, "debug") {
+				log.Printf("DEBUG %s %s %d %v %s", r.Method, r.URL.Path, wrapper.statusCode, duration, r.RemoteAddr)
+			}
+			return
+		}
+
 		log.Printf("%s %s %d %v %s", r.Method, r.URL.Path, wrapper.statusCode, duration, r.RemoteAddr)
 	})
 }
