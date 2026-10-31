@@ -296,6 +296,8 @@ Die Anwendung loggt alle HTTP-Anfragen mit:
 - Anfragedauer
 - Client-IP
 
+Anfragen an `/health` werden nur bei `logging.level: "debug"` protokolliert, damit Kubernetes-Liveness-Probes die Logs nicht standardmäßig füllen.
+
 ## Fehlerbehebung
 
 ### Häufige Probleme
