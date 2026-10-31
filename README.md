@@ -296,7 +296,6 @@ Die Anwendung loggt alle HTTP-Anfragen mit:
 - Anfragedauer
 - Client-IP
 
-
 ## Fehlerbehebung
 
 ### Häufige Probleme
