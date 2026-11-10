@@ -28,7 +28,7 @@ oidc:
 # Session management configuration
 session:
   secret: "your-very-secret-session-key-here-minimum-32-chars"
-  cookie_name: "compas-auth-session"
+  cookie_name: "oidc-session"
   max_age: 3600  # in seconds
 
 # Upstream routing configuration

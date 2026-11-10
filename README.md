@@ -106,7 +106,7 @@ oidc:
 # Session-Verwaltung
 session:
   secret: "ihr-sehr-sicherer-session-schlüssel-mindestens-32-zeichen"
-  cookie_name: "compas-session"
+  cookie_name: "oidc-session"
   max_age: 3600
 
 # Multi-Upstream Proxy

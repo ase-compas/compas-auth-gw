@@ -231,7 +231,7 @@ func (c *Config) setDefaults() {
 		c.Host = "0.0.0.0"
 	}
 	if c.SessionCookieName == "" {
-		c.SessionCookieName = "compas-session"
+		c.SessionCookieName = "oidc-session"
 	}
 	if c.SessionMaxAge == 0 {
 		c.SessionMaxAge = 3600
