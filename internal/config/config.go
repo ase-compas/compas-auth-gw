@@ -31,11 +31,12 @@ type TLSConfig struct {
 
 // OIDCConfig holds OpenID Connect configuration
 type OIDCConfig struct {
-	ProviderURL  string `yaml:"provider_url"`
-	ClientID     string `yaml:"client_id"`
-	ClientSecret string `yaml:"client_secret"`
-	RedirectURL  string `yaml:"redirect_url"`
-	Scopes       string `yaml:"scopes"`
+	ProviderURL    string `yaml:"provider_url"`
+	ClientID       string `yaml:"client_id"`
+	ClientSecret   string `yaml:"client_secret"`
+	RedirectURL    string `yaml:"redirect_url"`
+	Scopes         string `yaml:"scopes"`
+	UserInfoSource string `yaml:"userinfo_source"`
 }
 
 // SessionConfig holds session management configuration
@@ -86,11 +87,12 @@ type Config struct {
 	Host string
 
 	// OpenID Connect configuration
-	OIDCProviderURL  string
-	OIDCClientID     string
-	OIDCClientSecret string
-	OIDCRedirectURL  string
-	OIDCScopes       []string
+	OIDCProviderURL    string
+	OIDCClientID       string
+	OIDCClientSecret   string
+	OIDCRedirectURL    string
+	OIDCScopes         []string
+	OIDCUserInfoSource string
 
 	// Proxy configuration
 	UpstreamRoutes    []UpstreamRoute // Multi-upstream configuration
@@ -161,6 +163,7 @@ func LoadFromYAML(filepath string) (*Config, error) {
 		OIDCClientID:         yamlConfig.OIDC.ClientID,
 		OIDCClientSecret:     yamlConfig.OIDC.ClientSecret,
 		OIDCRedirectURL:      yamlConfig.OIDC.RedirectURL,
+		OIDCUserInfoSource:   yamlConfig.OIDC.UserInfoSource,
 		UpstreamRoutes:       yamlConfig.Proxy.Routes,
 		SessionSecret:        yamlConfig.Session.Secret,
 		SessionCookieName:    yamlConfig.Session.CookieName,
@@ -236,6 +239,9 @@ func (c *Config) setDefaults() {
 	if len(c.OIDCScopes) == 0 {
 		c.OIDCScopes = []string{"openid", "profile", "email"}
 	}
+	if c.OIDCUserInfoSource == "" {
+		c.OIDCUserInfoSource = "userinfo"
+	}
 	if len(c.AllowedOrigins) == 0 {
 		c.AllowedOrigins = []string{"*"}
 	}
@@ -261,6 +267,15 @@ func (c *Config) validate() error {
 		if value == "" {
 			return fmt.Errorf("required configuration %s is not set", key)
 		}
+	}
+
+	// Validate userinfo source
+	switch c.OIDCUserInfoSource {
+	case "", "userinfo", "id_token", "auto":
+		// Empty is accepted for callers that construct Config directly; the
+		// effective default is applied by setDefaults.
+	default:
+		return fmt.Errorf("oidc.userinfo_source must be one of userinfo, id_token, auto")
 	}
 
 	// Validate upstream routes

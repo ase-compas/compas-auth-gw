@@ -58,6 +58,8 @@ type UserInfo struct {
 	Name              string `json:"name"`
 	Email             string `json:"email"`
 	PreferredUsername string `json:"preferred_username"`
+	OID               string `json:"oid,omitempty"` // Entra ID stable user object ID
+	TID               string `json:"tid,omitempty"` // Entra ID tenant ID
 }
 
 // SessionStore interface for session management
@@ -191,12 +193,11 @@ func (m *OIDCMiddleware) HandleCallback(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Get user info
-	userInfo, err := m.getUserInfo(tokenResp.AccessToken)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get user info: %v", err), http.StatusInternalServerError)
-		return
-	}
+	// Resolve user info according to the configured source. Missing profile
+	// claims or an unavailable userinfo endpoint must not fail the login; the
+	// resolver falls back to the ID token and access-token claims and finally
+	// returns an empty profile.
+	userInfo := m.resolveUserInfo(tokenResp)
 
 	// Create session
 	sessionID := m.generateSessionID()

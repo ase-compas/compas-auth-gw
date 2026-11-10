@@ -98,6 +98,48 @@ health:
 	if config.LogFormat != "json" {
 		t.Errorf("Expected log format json, got %s", config.LogFormat)
 	}
+
+	if config.OIDCUserInfoSource != "userinfo" {
+		t.Errorf("Expected default userinfo source userinfo, got %s", config.OIDCUserInfoSource)
+	}
+}
+
+func TestLoadFromYAMLUserInfoSource(t *testing.T) {
+	yamlContent := `
+oidc:
+  provider_url: "http://test-provider.com"
+  client_id: "test-client"
+  client_secret: "test-secret-very-long-to-meet-requirements"
+  redirect_url: "http://localhost:8080/oidc/callback"
+  userinfo_source: "id_token"
+
+session:
+  secret: "test-session-secret-very-long-to-meet-32-char-requirement"
+
+proxy:
+  routes:
+    - path: "/"
+      upstream_url: "http://test-backend:8080"
+`
+
+	tmpFile, err := os.CreateTemp("", "config-test-*.yaml")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.WriteString(yamlContent); err != nil {
+		t.Fatalf("Failed to write to temp file: %v", err)
+	}
+	tmpFile.Close()
+
+	config, err := LoadFromYAML(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to load YAML config: %v", err)
+	}
+	if config.OIDCUserInfoSource != "id_token" {
+		t.Errorf("Expected userinfo source id_token, got %s", config.OIDCUserInfoSource)
+	}
 }
 
 func TestEnvironmentOverrides(t *testing.T) {
@@ -304,5 +346,12 @@ func TestConfigValidation(t *testing.T) {
 	err = config.validate()
 	if err == nil {
 		t.Error("Expected validation to fail for short session secret")
+	}
+
+	// Test invalid userinfo source
+	config.SessionSecret = "very-long-session-secret-that-meets-minimum-requirements"
+	config.OIDCUserInfoSource = "access_token"
+	if err := config.validate(); err == nil {
+		t.Error("Expected validation to fail for unknown userinfo source")
 	}
 }

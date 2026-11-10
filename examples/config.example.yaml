@@ -21,6 +21,9 @@ oidc:
   client_secret: "your-client-secret-here"
   redirect_url: "http://localhost:8080/oidc/callback"
   scopes: "openid,profile,email"
+  # Source for profile claims: userinfo (default), id_token, auto.
+  # Use id_token for Entra ID when the access token is issued for a custom API.
+  userinfo_source: "userinfo"
 
 # Session management configuration
 session:

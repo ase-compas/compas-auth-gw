@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -75,12 +76,9 @@ func main() {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{
-			"sub": "%s",
-			"name": "%s",
-			"email": "%s",
-			"preferred_username": "%s"
-		}`, userInfo.Sub, userInfo.Name, userInfo.Email, userInfo.PreferredUsername)
+		if err := json.NewEncoder(w).Encode(userInfo); err != nil {
+			log.Printf("Failed to encode user info response: %v", err)
+		}
 	})
 	mux.Handle("/auth/userinfo", oidcMiddleware.Handler(userInfoHandler))
 
