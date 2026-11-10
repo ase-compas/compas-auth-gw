@@ -142,6 +142,42 @@ proxy:
 	}
 }
 
+func TestDefaultSessionCookieName(t *testing.T) {
+	yamlContent := `
+oidc:
+  provider_url: "http://test-provider.com"
+  client_id: "test-client"
+  redirect_url: "http://localhost:8080/oidc/callback"
+
+session:
+  secret: "test-session-secret-very-long-to-meet-32-char-requirement"
+
+proxy:
+  routes:
+    - path: "/"
+      upstream_url: "http://test-backend:8080"
+`
+
+	tmpFile, err := os.CreateTemp("", "config-test-*.yaml")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.WriteString(yamlContent); err != nil {
+		t.Fatalf("Failed to write to temp file: %v", err)
+	}
+	tmpFile.Close()
+
+	config, err := LoadFromYAML(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to load YAML config: %v", err)
+	}
+	if config.SessionCookieName != "oidc-session" {
+		t.Errorf("Expected default session cookie name oidc-session, got %s", config.SessionCookieName)
+	}
+}
+
 func TestEnvironmentOverrides(t *testing.T) {
 	// Create a temporary YAML config file
 	yamlContent := `
