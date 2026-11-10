@@ -100,6 +100,8 @@ oidc:
   client_secret: "ihr-client-secret"
   redirect_url: "http://localhost:8080/oidc/callback"
   scopes: "openid,profile,email"
+  # Quelle für Profil-Claims: userinfo (Default), id_token, auto
+  userinfo_source: "userinfo"
 
 # Session-Verwaltung
 session:
@@ -123,6 +125,18 @@ security:
     - "http://localhost:3000"
     - "http://localhost:8080"
 ```
+
+### Userinfo-Quelle
+
+`oidc.userinfo_source` legt fest, woher die Profil-Claims (`sub`, `name`, `email`, `preferred_username`) kommen:
+
+- `userinfo` (Default): bestehendes Verhalten; ruft den Userinfo-Endpoint des Providers mit dem Access Token auf. Für Keycloak unverändert.
+- `id_token`: verwendet die Claims aus dem ID Token. Das ist für Entra ID erforderlich, wenn der Access Token für eine eigene API ausgestellt ist, weil der Graph-Userinfo-Endpoint diesen Token mit HTTP 401 ablehnt.
+- `auto`: bevorzugt ID-Token-Claims, wenn sie nutzbar sind; andernfalls wird der Userinfo-Endpoint verwendet.
+
+Fehlende optionale Claims, ein nicht erreichbarer Userinfo-Endpoint oder ein nicht lesbarer Token führen nicht zum Login-Abbruch. Der Proxy protokolliert eine Warnung und verwendet die verfügbaren Claims aus ID Token bzw. Access Token; schlimmstenfalls bleibt das Profil leer. `iss`, `aud`, `exp` und `sub` des ID Tokens werden validiert.
+
+Der Access Token bleibt weiterhin für die API-Autorisierung und das `roles`-Claim zuständig. `userinfo_source` betrifft nur Profil-Claims.
 
 ### Konfigurationsdatei
 
@@ -179,7 +193,7 @@ proxy:
 ### Authentifizierung
 - `GET /oidc/callback` - OIDC Callback Endpoint
 - `GET /auth/logout` - Benutzer Logout
-- `GET /auth/userinfo` - Benutzerinformationen abrufen
+- `GET /auth/userinfo` - Benutzerinformationen abrufen (`sub`, `name`, `email`, `preferred_username`, optional `oid` und `tid`)
 
 ### System
 - `GET /health` - Health Check Endpoint
@@ -316,6 +330,11 @@ Die Anwendung loggt alle HTTP-Anfragen mit:
    - Erstellen Sie eine `config.yaml` Datei im aktuellen Verzeichnis, oder
    - Setzen Sie `CONFIG_FILE=pfad/zu/ihrer/config.yaml` als Umgebungsvariable
    - Stellen Sie sicher, dass die YAML-Datei existiert und gültig ist
+
+5. **"Failed to get user info: userinfo request failed with status: 401"**
+   - Bei Entra ID mit einem Access Token für eine eigene API lehnt der Microsoft-Graph-Userinfo-Endpoint den Token ab.
+   - Setzen Sie `oidc.userinfo_source: "id_token"`.
+   - Mit dieser Version fällt der Proxy bei fehlenden oder nicht lesbaren Profil-Claims auf Userinfo bzw. Access-Token-Claims zurück, ohne den Login abzubrechen.
 
 ### Debug-Logs aktivieren
 
