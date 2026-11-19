@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/ase-compas/compas-auth-proxy/internal/config"
@@ -47,6 +49,40 @@ func TestMultiProxyRouting(t *testing.T) {
 		if route.PathPrefix != tc.expected {
 			t.Errorf("Path %s: expected route %s, got %s", tc.path, tc.expected, route.PathPrefix)
 		}
+	}
+}
+
+func TestAddAuthHeadersStripsClientAuthHeaders(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "http://upstream/api", nil)
+	request.Header.Set("X-Auth-User", "client-supplied-user")
+	request.Header.Set("X-Auth-Roles", "fleet-mgmt:admin")
+	request.Header["x-auth-custom"] = []string{"client-supplied"}
+
+	ctx := SetUserInContext(request.Context(), &UserInfo{
+		Sub:   "authenticated-user",
+		Email: "jane@example.com",
+		Roles: []string{"fleet-mgmt:reader", "fleet-mgmt:writer"},
+	})
+	ctx = SetAccessTokenInContext(ctx, "access-token")
+	request = request.WithContext(ctx)
+
+	middleware := &MultiProxyMiddleware{}
+	middleware.addAuthHeaders(request)
+
+	if got := request.Header.Get("X-Auth-User"); got != "authenticated-user" {
+		t.Fatalf("X-Auth-User = %q, want the session user", got)
+	}
+	if got := request.Header.Get("X-Auth-Email"); got != "jane@example.com" {
+		t.Fatalf("X-Auth-Email = %q, want the session email", got)
+	}
+	if got := request.Header.Get("X-Auth-Roles"); got != "fleet-mgmt:reader,fleet-mgmt:writer" {
+		t.Fatalf("X-Auth-Roles = %q, want roles from the session", got)
+	}
+	if got := request.Header.Get("X-Auth-Custom"); got != "" {
+		t.Fatalf("client-supplied X-Auth-Custom was forwarded: %q", got)
+	}
+	if got := request.Header.Get("Authorization"); got != "Bearer access-token" {
+		t.Fatalf("Authorization = %q, want the session access token", got)
 	}
 }
 

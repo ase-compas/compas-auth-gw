@@ -54,12 +54,13 @@ type TokenResponse struct {
 
 // UserInfo represents user information from the provider
 type UserInfo struct {
-	Sub               string `json:"sub"`
-	Name              string `json:"name"`
-	Email             string `json:"email"`
-	PreferredUsername string `json:"preferred_username"`
-	OID               string `json:"oid,omitempty"` // Entra ID stable user object ID
-	TID               string `json:"tid,omitempty"` // Entra ID tenant ID
+	Sub               string   `json:"sub"`
+	Name              string   `json:"name"`
+	Email             string   `json:"email"`
+	PreferredUsername string   `json:"preferred_username"`
+	OID               string   `json:"oid,omitempty"` // Entra ID stable user object ID
+	TID               string   `json:"tid,omitempty"` // Entra ID tenant ID
+	Roles             []string `json:"roles"`
 }
 
 // SessionStore interface for session management
@@ -198,6 +199,13 @@ func (m *OIDCMiddleware) HandleCallback(w http.ResponseWriter, r *http.Request) 
 	// resolver falls back to the ID token and access-token claims and finally
 	// returns an empty profile.
 	userInfo := m.resolveUserInfo(tokenResp)
+	if userInfo == nil {
+		userInfo = &UserInfo{}
+	}
+	// Roles always come from the access token, independently of
+	// userinfo_source. Role extraction is best effort and returns an empty
+	// slice when no roles are available.
+	userInfo.Roles = m.extractRolesFromAccessToken(tokenResp.AccessToken)
 
 	// Create session
 	sessionID := m.generateSessionID()
@@ -441,6 +449,13 @@ func (m *OIDCMiddleware) renewSession(w http.ResponseWriter, r *http.Request, se
 		}
 		sessionData.AccessTokenExpiresAt = accessTokenExpiresAt
 		sessionData.AccessTokenRefreshAt = accessTokenRefreshAt
+
+		// Roles may change between token refreshes, so always re-extract
+		// them from the new access token.
+		if sessionData.UserInfo == nil {
+			sessionData.UserInfo = &UserInfo{}
+		}
+		sessionData.UserInfo.Roles = m.extractRolesFromAccessToken(newTokenResp.AccessToken)
 	}
 
 	// Renew the idle timeout for both the server-side session and browser cookie.
