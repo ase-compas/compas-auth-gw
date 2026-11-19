@@ -347,6 +347,73 @@ health:
 	}
 }
 
+func TestRolesConfig(t *testing.T) {
+	tests := []struct {
+		name         string
+		rolesYAML    string
+		wantEnabled  bool
+		wantClientID string
+	}{
+		{
+			name:        "roles enabled by default",
+			wantEnabled: true,
+		},
+		{
+			name: "roles explicitly enabled with Keycloak client",
+			rolesYAML: `
+  roles:
+    enabled: true
+    keycloak_client_id: "fleet-api"
+`,
+			wantEnabled:  true,
+			wantClientID: "fleet-api",
+		},
+		{
+			name: "roles explicitly disabled",
+			rolesYAML: `
+  roles:
+    enabled: false
+    keycloak_client_id: "fleet-api"
+`,
+			wantEnabled:  false,
+			wantClientID: "fleet-api",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			yamlContent := `
+oidc:
+  provider_url: "http://test-provider.com"
+  client_id: "test-client"
+` + tt.rolesYAML
+
+			tmpFile, err := os.CreateTemp("", "config-test-*.yaml")
+			if err != nil {
+				t.Fatalf("failed to create temp file: %v", err)
+			}
+			defer os.Remove(tmpFile.Name())
+
+			if _, err := tmpFile.WriteString(yamlContent); err != nil {
+				t.Fatalf("failed to write to temp file: %v", err)
+			}
+			tmpFile.Close()
+
+			config, err := LoadFromYAML(tmpFile.Name())
+			if err != nil {
+				t.Fatalf("failed to load YAML config: %v", err)
+			}
+
+			if config.OIDCRolesEnabled != tt.wantEnabled {
+				t.Errorf("OIDCRolesEnabled = %t, want %t", config.OIDCRolesEnabled, tt.wantEnabled)
+			}
+			if config.OIDCKeycloakClientID != tt.wantClientID {
+				t.Errorf("OIDCKeycloakClientID = %q, want %q", config.OIDCKeycloakClientID, tt.wantClientID)
+			}
+		})
+	}
+}
+
 func TestConfigValidation(t *testing.T) {
 	// Test with invalid config (missing required fields)
 	config := &Config{

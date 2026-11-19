@@ -67,20 +67,7 @@ func main() {
 	mux.HandleFunc("/oidc/callback", oidcMiddleware.HandleCallback)
 
 	// User info endpoint - wrapped with OIDC middleware
-	userInfoHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// This endpoint requires authentication
-		userInfo := getUserInfoFromRequest(r)
-		if userInfo == nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(userInfo); err != nil {
-			log.Printf("Failed to encode user info response: %v", err)
-		}
-	})
-	mux.Handle("/auth/userinfo", oidcMiddleware.Handler(userInfoHandler))
+	mux.Handle("/auth/userinfo", oidcMiddleware.Handler(newUserInfoHandler()))
 
 	// All other requests go through the multi-proxy with authentication
 	mux.Handle("/", oidcMiddleware.Handler(multiProxyMiddleware.Handler()))
@@ -167,6 +154,30 @@ func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 		return nil, nil, fmt.Errorf("response writer does not support hijacking")
 	}
 	return hijacker.Hijack()
+}
+
+// newUserInfoHandler returns the handler for /auth/userinfo.
+func newUserInfoHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// This endpoint requires authentication
+		userInfo := getUserInfoFromRequest(r)
+		if userInfo == nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// The contract requires roles to always be present as an array, even
+		// for sessions created before role extraction was introduced.
+		response := *userInfo
+		if response.Roles == nil {
+			response.Roles = []string{}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(&response); err != nil {
+			log.Printf("Failed to encode user info response: %v", err)
+		}
+	})
 }
 
 // getUserInfoFromRequest extracts user info from request context

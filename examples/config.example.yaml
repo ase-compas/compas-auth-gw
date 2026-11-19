@@ -24,6 +24,13 @@ oidc:
   # Source for profile claims: userinfo (default), id_token, auto.
   # Use id_token for Entra ID when the access token is issued for a custom API.
   userinfo_source: "userinfo"
+  # Role extraction from the access token. Roles are returned by
+  # /auth/userinfo and forwarded as X-Auth-Roles. Enabled by default.
+  roles:
+    enabled: true
+    # Optional: include Keycloak client roles from this client. This is the
+    # API client, not necessarily oidc.client_id (the gateway client).
+    keycloak_client_id: ""
 
 # Session management configuration
 session:

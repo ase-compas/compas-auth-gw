@@ -102,6 +102,11 @@ oidc:
   scopes: "openid,profile,email"
   # Quelle für Profil-Claims: userinfo (Default), id_token, auto
   userinfo_source: "userinfo"
+  # Rollen aus dem Access Token (Default: true)
+  roles:
+    enabled: true
+    # Optional: Keycloak-Clientrollen dieses Clients einbeziehen
+    keycloak_client_id: ""
 
 # Session-Verwaltung
 session:
@@ -137,6 +142,40 @@ security:
 Fehlende optionale Claims, ein nicht erreichbarer Userinfo-Endpoint oder ein nicht lesbarer Token führen nicht zum Login-Abbruch. Der Proxy protokolliert eine Warnung und verwendet die verfügbaren Claims aus ID Token bzw. Access Token; schlimmstenfalls bleibt das Profil leer. `iss`, `aud`, `exp` und `sub` des ID Tokens werden validiert.
 
 Der Access Token bleibt weiterhin für die API-Autorisierung und das `roles`-Claim zuständig. `userinfo_source` betrifft nur Profil-Claims.
+
+### Rollen
+
+Rollen werden immer aus dem **Access Token** gelesen, unabhängig von `oidc.userinfo_source`. Die Provider unterscheiden sich nur in der Position der Claims:
+
+- **Entra ID:** Top-Level-`roles` im Access Token (App-Rollen der API-App). Rollen im ID Token gehören zur Client-App und werden nicht für die API-Autorisierung verwendet.
+- **Keycloak:** `realm_access.roles` sowie optional `resource_access.<keycloak_client_id>.roles`.
+
+```yaml
+oidc:
+  roles:
+    enabled: true               # Default: true
+    keycloak_client_id: "fleet-api"  # optional
+```
+
+`keycloak_client_id` ist die Client-ID der API und nicht zwingend `oidc.client_id` (die Client-ID des Gateways). Die Extraktion ist best effort: fehlende Claims, opake Access Tokens oder Parse-Fehler führen zu einer leeren Rollenliste und niemals zu einem Login-Fehler. Beim Token-Refresh werden die Rollen aus dem neuen Access Token erneut gelesen. Rollenwerte werden unverändert und case-sensitive übernommen; eine eventuelle Zuordnung zu fachlichen Berechtigungen erfolgt im Consumer.
+
+`/auth/userinfo` liefert `roles` immer als Array, gegebenenfalls leer:
+
+```json
+{
+  "sub": "pairwise-subject",
+  "name": "Jane Doe",
+  "email": "jane.doe@example.com",
+  "preferred_username": "jane.doe@example.com",
+  "oid": "00000000-0000-0000-0000-000000000000",
+  "tid": "11111111-1111-1111-1111-111111111111",
+  "roles": ["fleet-mgmt:reader", "fleet-mgmt:writer"]
+}
+```
+
+Für Upstreams setzt der Proxy zusätzlich `X-Auth-Roles` als kommagetrennten Wert. Eingehende `X-Auth-*`-Header von Clients werden entfernt und ausschließlich aus der Session überschrieben. Die Rollen sind rein informativ; die API muss das Access Token weiterhin selbst validieren und darf `X-Auth-Roles` nicht als Autorisierungsnachweis verwenden.
+
+Die OpenAPI-3.1-Spezifikation der Endpoints liegt unter [`api/openapi.yaml`](api/openapi.yaml).
 
 ### Konfigurationsdatei
 
@@ -193,7 +232,7 @@ proxy:
 ### Authentifizierung
 - `GET /oidc/callback` - OIDC Callback Endpoint
 - `GET /auth/logout` - Benutzer Logout
-- `GET /auth/userinfo` - Benutzerinformationen abrufen (`sub`, `name`, `email`, `preferred_username`, optional `oid` und `tid`)
+- `GET /auth/userinfo` - Benutzerinformationen abrufen (`sub`, `name`, `email`, `preferred_username`, optionale `oid` und `tid`, `roles` immer als Array)
 
 ### System
 - `GET /health` - Health Check Endpoint
