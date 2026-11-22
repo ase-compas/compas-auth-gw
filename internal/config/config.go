@@ -29,14 +29,21 @@ type TLSConfig struct {
 	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"`
 }
 
+// OIDCRolesConfig holds role extraction configuration
+type OIDCRolesConfig struct {
+	Enabled          *bool  `yaml:"enabled"`            // Extract roles from the access token (default true)
+	KeycloakClientID string `yaml:"keycloak_client_id"` // Optional Keycloak client whose client roles are included
+}
+
 // OIDCConfig holds OpenID Connect configuration
 type OIDCConfig struct {
-	ProviderURL    string `yaml:"provider_url"`
-	ClientID       string `yaml:"client_id"`
-	ClientSecret   string `yaml:"client_secret"`
-	RedirectURL    string `yaml:"redirect_url"`
-	Scopes         string `yaml:"scopes"`
-	UserInfoSource string `yaml:"userinfo_source"`
+	ProviderURL    string          `yaml:"provider_url"`
+	ClientID       string          `yaml:"client_id"`
+	ClientSecret   string          `yaml:"client_secret"`
+	RedirectURL    string          `yaml:"redirect_url"`
+	Scopes         string          `yaml:"scopes"`
+	UserInfoSource string          `yaml:"userinfo_source"`
+	Roles          OIDCRolesConfig `yaml:"roles"`
 }
 
 // SessionConfig holds session management configuration
@@ -87,12 +94,14 @@ type Config struct {
 	Host string
 
 	// OpenID Connect configuration
-	OIDCProviderURL    string
-	OIDCClientID       string
-	OIDCClientSecret   string
-	OIDCRedirectURL    string
-	OIDCScopes         []string
-	OIDCUserInfoSource string
+	OIDCProviderURL      string
+	OIDCClientID         string
+	OIDCClientSecret     string
+	OIDCRedirectURL      string
+	OIDCScopes           []string
+	OIDCUserInfoSource   string
+	OIDCRolesEnabled     bool
+	OIDCKeycloakClientID string
 
 	// Proxy configuration
 	UpstreamRoutes    []UpstreamRoute // Multi-upstream configuration
@@ -155,6 +164,14 @@ func LoadFromYAML(filepath string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse YAML config: %v", err)
 	}
 
+	// Roles are extracted from the access token by default. The explicit
+	// pointer allows `roles.enabled: false` to opt out while keeping the
+	// zero-value YAML decoding (omitted) enabled.
+	rolesEnabled := true
+	if yamlConfig.OIDC.Roles.Enabled != nil {
+		rolesEnabled = *yamlConfig.OIDC.Roles.Enabled
+	}
+
 	// Convert YAML config to internal Config structure
 	config := &Config{
 		Port:                 yamlConfig.Server.Port,
@@ -164,6 +181,8 @@ func LoadFromYAML(filepath string) (*Config, error) {
 		OIDCClientSecret:     yamlConfig.OIDC.ClientSecret,
 		OIDCRedirectURL:      yamlConfig.OIDC.RedirectURL,
 		OIDCUserInfoSource:   yamlConfig.OIDC.UserInfoSource,
+		OIDCRolesEnabled:     rolesEnabled,
+		OIDCKeycloakClientID: yamlConfig.OIDC.Roles.KeycloakClientID,
 		UpstreamRoutes:       yamlConfig.Proxy.Routes,
 		SessionSecret:        yamlConfig.Session.Secret,
 		SessionCookieName:    yamlConfig.Session.CookieName,

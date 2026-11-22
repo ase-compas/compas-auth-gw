@@ -60,6 +60,22 @@ type tokenClaims struct {
 // Claim validation (iss, aud, exp, sub) is still performed for ID tokens. A
 // future hardening step should verify signatures against the provider JWKS.
 func parseJWTClaims(token string) (*tokenClaims, error) {
+	payload, err := decodeJWTPayload(token)
+	if err != nil {
+		return nil, err
+	}
+
+	var claims tokenClaims
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return nil, fmt.Errorf("decode JWT claims: %w", err)
+	}
+
+	return &claims, nil
+}
+
+// decodeJWTPayload decodes the payload segment of a JWT without validating
+// its signature. Callers must only use claims from trusted token sources.
+func decodeJWTPayload(token string) ([]byte, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("token is not a JWT")
@@ -76,12 +92,7 @@ func parseJWTClaims(token string) (*tokenClaims, error) {
 		}
 	}
 
-	var claims tokenClaims
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return nil, fmt.Errorf("decode JWT claims: %w", err)
-	}
-
-	return &claims, nil
+	return payload, nil
 }
 
 func userInfoFromClaims(claims *tokenClaims) *UserInfo {

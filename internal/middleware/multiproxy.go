@@ -57,16 +57,9 @@ func NewMultiProxyMiddleware(cfg *config.Config) (*MultiProxyMiddleware, error) 
 			wsProxy = websocketproxy.NewProxy(&wsURL)
 			// Customize WebSocket proxy director
 			wsProxy.Director = func(incoming *http.Request, out http.Header) {
-				// Add authentication headers to WebSocket upgrade request
-				if userInfo := GetUserFromContext(incoming.Context()); userInfo != nil {
-					out.Set("X-Auth-User", userInfo.Sub)
-					out.Set("X-Auth-Email", userInfo.Email)
-					out.Set("X-Auth-Name", userInfo.Name)
-					out.Set("X-Auth-Username", userInfo.PreferredUsername)
-				}
-				if accessToken := GetAccessTokenFromContext(incoming.Context()); accessToken != "" {
-					out.Set("Authorization", "Bearer "+accessToken)
-				}
+				// Never trust client-supplied authentication headers.
+				stripClientAuthHeaders(out)
+				setAuthHeaders(out, GetUserFromContext(incoming.Context()), GetAccessTokenFromContext(incoming.Context()))
 			}
 		}
 
@@ -211,19 +204,39 @@ func (m *MultiProxyMiddleware) sortRoutes() {
 	}
 }
 
-// addAuthHeaders adds authentication headers to the request
+// addAuthHeaders adds authentication headers to the request.
+//
+// Any X-Auth-* header supplied by the client is removed first. These headers
+// are only ever populated from the authenticated session; they are not proof
+// of authorization for upstream services.
 func (m *MultiProxyMiddleware) addAuthHeaders(req *http.Request) {
-	// Add user information headers if available
-	if userInfo := GetUserFromContext(req.Context()); userInfo != nil {
-		req.Header.Set("X-Auth-User", userInfo.Sub)
-		req.Header.Set("X-Auth-Email", userInfo.Email)
-		req.Header.Set("X-Auth-Name", userInfo.Name)
-		req.Header.Set("X-Auth-Username", userInfo.PreferredUsername)
+	stripClientAuthHeaders(req.Header)
+	setAuthHeaders(req.Header, GetUserFromContext(req.Context()), GetAccessTokenFromContext(req.Context()))
+}
+
+// setAuthHeaders writes identity and role information from the session to the
+// upstream request.
+func setAuthHeaders(header http.Header, userInfo *UserInfo, accessToken string) {
+	if userInfo != nil {
+		header.Set("X-Auth-User", userInfo.Sub)
+		header.Set("X-Auth-Email", userInfo.Email)
+		header.Set("X-Auth-Name", userInfo.Name)
+		header.Set("X-Auth-Username", userInfo.PreferredUsername)
+		header.Set("X-Auth-Roles", strings.Join(userInfo.Roles, ","))
 	}
 
-	// Add access token header if available
-	if accessToken := GetAccessTokenFromContext(req.Context()); accessToken != "" {
-		req.Header.Set("Authorization", "Bearer "+accessToken)
+	if accessToken != "" {
+		header.Set("Authorization", "Bearer "+accessToken)
+	}
+}
+
+// stripClientAuthHeaders removes every client-supplied X-Auth-* header,
+// regardless of how the header name was cased.
+func stripClientAuthHeaders(header http.Header) {
+	for name := range header {
+		if strings.HasPrefix(strings.ToLower(name), "x-auth-") {
+			delete(header, name)
+		}
 	}
 }
 

@@ -110,6 +110,10 @@ func cloneSessionData(data *SessionData) *SessionData {
 	clone := *data
 	if data.UserInfo != nil {
 		userInfo := *data.UserInfo
+		if data.UserInfo.Roles != nil {
+			userInfo.Roles = make([]string, len(data.UserInfo.Roles))
+			copy(userInfo.Roles, data.UserInfo.Roles)
+		}
 		clone.UserInfo = &userInfo
 	}
 

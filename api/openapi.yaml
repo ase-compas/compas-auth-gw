@@ -1,0 +1,196 @@
+openapi: 3.1.0
+info:
+  title: CoMPAS Auth Gateway API
+  version: 1.0.0
+  description: |
+    Authentication gateway for CoMPAS. The gateway performs the OpenID Connect
+    authorization-code flow, keeps the provider tokens in a server-side
+    session, forwards authenticated requests to upstream services, and exposes
+    the authenticated session through `/auth/userinfo`.
+
+    Roles are informational. Upstream APIs must still validate the access
+    token and must not treat forwarded `X-Auth-*` headers as proof of
+    authorization.
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+paths:
+  /auth/userinfo:
+    get:
+      summary: Get the authenticated user's session information
+      operationId: getUserInfo
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Authenticated user information.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserInfo"
+              examples:
+                entraId:
+                  summary: Entra ID user with API app roles
+                  value:
+                    sub: pairwise-subject
+                    name: Jane Doe
+                    email: jane.doe@example.com
+                    preferred_username: jane.doe@example.com
+                    oid: "00000000-0000-0000-0000-000000000000"
+                    tid: "11111111-1111-1111-1111-111111111111"
+                    roles:
+                      - fleet-mgmt:reader
+                      - fleet-mgmt:writer
+                keycloakWithoutRoles:
+                  summary: Keycloak user without role claims
+                  value:
+                    sub: 6f8c2f2e-3bb1-4a42-9d2d-1c0f7b40b3a8
+                    name: Jane Doe
+                    email: jane.doe@example.com
+                    preferred_username: jane.doe
+                    roles: []
+        "302":
+          description: No authenticated session; redirects to the OIDC provider.
+          headers:
+            Location:
+              description: OIDC authorization endpoint.
+              schema:
+                type: string
+        "401":
+          description: Defensive response when the handler is invoked without user information.
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /auth/logout:
+    get:
+      summary: Delete the current session and clear the session cookie
+      operationId: logout
+      security:
+        - sessionCookie: []
+      responses:
+        "302":
+          description: Redirect to `/` after the session has been removed.
+          headers:
+            Set-Cookie:
+              description: Clears the session cookie.
+              schema:
+                type: string
+
+  /oidc/callback:
+    get:
+      summary: OIDC authorization-code callback
+      operationId: oidcCallback
+      parameters:
+        - name: state
+          in: query
+          required: true
+          description: State value previously sent by the gateway.
+          schema:
+            type: string
+        - name: code
+          in: query
+          required: true
+          description: Authorization code issued by the provider.
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Login succeeded; redirects to the originally requested path.
+          headers:
+            Set-Cookie:
+              description: Sets the server-side session cookie.
+              schema:
+                type: string
+        "400":
+          description: Missing `state` or `code` query parameter.
+          content:
+            text/plain:
+              schema:
+                type: string
+        "500":
+          description: Token exchange failed or the token response was invalid.
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /health:
+    get:
+      summary: Health check
+      operationId: health
+      responses:
+        "200":
+          description: The gateway is running.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: oidc-session
+      description: |
+        Server-side session cookie. The cookie name is configurable through
+        `session.cookie_name`.
+
+  schemas:
+    UserInfo:
+      type: object
+      required:
+        - sub
+        - name
+        - email
+        - preferred_username
+        - roles
+      properties:
+        sub:
+          type: string
+          description: Stable subject identifier supplied by the provider.
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        preferred_username:
+          type: string
+        oid:
+          type: string
+          description: Entra ID user object ID. Omitted when the provider does not supply it.
+        tid:
+          type: string
+          description: Entra ID tenant ID. Omitted when the provider does not supply it.
+        roles:
+          type: array
+          description: |
+            Roles read from the access token. Always present and always an
+            array, even when no roles are available. Entra ID roles come from
+            the top-level `roles` claim; Keycloak roles come from
+            `realm_access.roles` and optionally
+            `resource_access.<keycloak_client_id>.roles`.
+          items:
+            type: string
+          default: []
+
+    Health:
+      type: object
+      required:
+        - status
+        - timestamp
+      properties:
+        status:
+          type: string
+          enum:
+            - healthy
+        timestamp:
+          type: string
+          format: date-time
+        upstreams:
+          type: string
+          description: Upstream health status when `health.check_upstreams` is enabled.

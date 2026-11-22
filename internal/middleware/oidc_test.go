@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -224,6 +225,181 @@ func TestHandlerRefreshesTokenOnceForConcurrentRequests(t *testing.T) {
 	}
 }
 
+func TestHandleCallbackExtractsRolesFromAccessToken(t *testing.T) {
+	accessToken := testJWT(map[string]any{
+		"sub":   "user-id",
+		"roles": []string{"fleet-mgmt:reader", "fleet-mgmt:writer"},
+	})
+
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"access_token":%q,"refresh_token":"refresh-token","expires_in":300,"token_type":"Bearer"}`, accessToken)
+	}))
+	defer tokenServer.Close()
+
+	userInfoServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"sub":"user-id","name":"Userinfo Name","roles":["userinfo-role"]}`)
+	}))
+	defer userInfoServer.Close()
+
+	store := NewMemorySessionStore()
+	defer store.Close()
+
+	cfg := &config.Config{
+		OIDCClientID:         "client-id",
+		OIDCClientSecret:     "client-secret",
+		OIDCRedirectURL:      "http://localhost/oidc/callback",
+		SessionCookieName:    "test-session",
+		SessionMaxAge:        300,
+		OIDCRolesEnabled:     true,
+		OIDCKeycloakClientID: "fleet-api",
+	}
+	middleware := newTestOIDCMiddleware(cfg, store, tokenServer.URL)
+	middleware.providerConfig.UserInfoEndpoint = userInfoServer.URL
+
+	request := httptest.NewRequest(http.MethodGet, "/oidc/callback?state=test-state&code=auth-code", nil)
+	recorder := httptest.NewRecorder()
+	middleware.HandleCallback(recorder, request)
+
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("expected status %d, got %d", http.StatusFound, recorder.Code)
+	}
+
+	cookie := findCookie(recorder.Result().Cookies(), "test-session")
+	if cookie == nil {
+		t.Fatal("expected session cookie")
+	}
+
+	session, err := store.Get(cookie.Value)
+	if err != nil {
+		t.Fatalf("failed to retrieve session: %v", err)
+	}
+	if session.UserInfo == nil {
+		t.Fatal("expected user info in session")
+	}
+	if session.UserInfo.Name != "Userinfo Name" {
+		t.Fatalf("expected profile from userinfo, got %q", session.UserInfo.Name)
+	}
+
+	// Roles must come from the access token, not from userinfo or the ID token.
+	wantRoles := []string{"fleet-mgmt:reader", "fleet-mgmt:writer"}
+	if !reflect.DeepEqual(session.UserInfo.Roles, wantRoles) {
+		t.Fatalf("expected roles %v, got %v", wantRoles, session.UserInfo.Roles)
+	}
+}
+
+func TestHandleCallbackWithOpaqueAccessTokenDoesNotFailLogin(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"access_token":"opaque-access-token","refresh_token":"refresh-token","expires_in":300,"token_type":"Bearer"}`)
+	}))
+	defer tokenServer.Close()
+
+	userInfoServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"sub":"user-id","name":"Userinfo Name"}`)
+	}))
+	defer userInfoServer.Close()
+
+	store := NewMemorySessionStore()
+	defer store.Close()
+
+	middleware := newTestOIDCMiddleware(&config.Config{
+		OIDCClientID:      "client-id",
+		OIDCClientSecret:  "client-secret",
+		OIDCRedirectURL:   "http://localhost/oidc/callback",
+		SessionCookieName: "test-session",
+		SessionMaxAge:     300,
+		OIDCRolesEnabled:  true,
+	}, store, tokenServer.URL)
+	middleware.providerConfig.UserInfoEndpoint = userInfoServer.URL
+
+	request := httptest.NewRequest(http.MethodGet, "/oidc/callback?state=test-state&code=auth-code", nil)
+	recorder := httptest.NewRecorder()
+	middleware.HandleCallback(recorder, request)
+
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("expected status %d, got %d", http.StatusFound, recorder.Code)
+	}
+
+	cookie := findCookie(recorder.Result().Cookies(), "test-session")
+	if cookie == nil {
+		t.Fatal("expected session cookie")
+	}
+
+	session, err := store.Get(cookie.Value)
+	if err != nil {
+		t.Fatalf("failed to retrieve session: %v", err)
+	}
+	if session.UserInfo == nil {
+		t.Fatal("expected user info in session")
+	}
+	if session.UserInfo.Roles == nil {
+		t.Fatal("expected roles to be an empty array, got nil")
+	}
+	if len(session.UserInfo.Roles) != 0 {
+		t.Fatalf("expected no roles, got %v", session.UserInfo.Roles)
+	}
+}
+
+func TestRefreshReextractsRolesFromNewAccessToken(t *testing.T) {
+	newAccessToken := testJWT(map[string]any{
+		"sub":   "user-id",
+		"roles": []string{"fleet-mgmt:writer"},
+	})
+
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"access_token":%q,"expires_in":300,"token_type":"Bearer"}`, newAccessToken)
+	}))
+	defer tokenServer.Close()
+
+	store := NewMemorySessionStore()
+	defer store.Close()
+
+	middleware := newTestOIDCMiddleware(&config.Config{
+		OIDCClientID:      "client-id",
+		OIDCClientSecret:  "client-secret",
+		SessionCookieName: "test-session",
+		SessionMaxAge:     300,
+		OIDCRolesEnabled:  true,
+	}, store, tokenServer.URL)
+
+	sessionID := "session-id"
+	if err := store.Set(sessionID, &SessionData{
+		UserInfo:             &UserInfo{Sub: "user-id", Roles: []string{"fleet-mgmt:reader"}},
+		AccessToken:          "old-access-token",
+		RefreshToken:         "refresh-token",
+		ExpiresAt:            time.Now().Add(5 * time.Minute),
+		AccessTokenExpiresAt: time.Now().Add(10 * time.Second),
+	}); err != nil {
+		t.Fatalf("failed to create session: %v", err)
+	}
+
+	handler := middleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	request := httptest.NewRequest(http.MethodGet, "/api", nil)
+	request.AddCookie(&http.Cookie{Name: "test-session", Value: sessionID})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, recorder.Code)
+	}
+
+	session, err := store.Get(sessionID)
+	if err != nil {
+		t.Fatalf("failed to retrieve session: %v", err)
+	}
+	wantRoles := []string{"fleet-mgmt:writer"}
+	if !reflect.DeepEqual(session.UserInfo.Roles, wantRoles) {
+		t.Fatalf("expected refreshed roles %v, got %v", wantRoles, session.UserInfo.Roles)
+	}
+}
+
 func TestLogoutCannotBeUndoneByConcurrentRefresh(t *testing.T) {
 	refreshStarted := make(chan struct{})
 	releaseRefresh := make(chan struct{})
@@ -316,7 +492,7 @@ func TestMemorySessionStoreReturnsCopies(t *testing.T) {
 
 	sessionID := "session-id"
 	if err := store.Set(sessionID, &SessionData{
-		UserInfo:    &UserInfo{Sub: "user-id"},
+		UserInfo:    &UserInfo{Sub: "user-id", Roles: []string{"fleet-mgmt:reader"}},
 		AccessToken: "access-token",
 		ExpiresAt:   time.Now().Add(time.Minute),
 	}); err != nil {
@@ -329,6 +505,7 @@ func TestMemorySessionStoreReturnsCopies(t *testing.T) {
 	}
 	first.AccessToken = "mutated-token"
 	first.UserInfo.Sub = "mutated-user"
+	first.UserInfo.Roles[0] = "mutated-role"
 
 	second, err := store.Get(sessionID)
 	if err != nil {
@@ -339,6 +516,9 @@ func TestMemorySessionStoreReturnsCopies(t *testing.T) {
 	}
 	if second.UserInfo.Sub != "user-id" {
 		t.Fatalf("stored user info was mutated: %q", second.UserInfo.Sub)
+	}
+	if !reflect.DeepEqual(second.UserInfo.Roles, []string{"fleet-mgmt:reader"}) {
+		t.Fatalf("stored roles were mutated: %v", second.UserInfo.Roles)
 	}
 }
 
